@@ -78,7 +78,8 @@ for file in input_files:
 
     
     impute(extracted_features)
-    features_filtered = select_features(extracted_features, labels)
+    #edit by fatemeh 1 line
+    #features_filtered = select_features(extracted_features, labels) #we alreadu have selected features and doesn't need this function
     
     ids = pd.Series(labels.shape[0]*[df["mesaid"].unique()[0]])
     all_features.append(features_filtered)
