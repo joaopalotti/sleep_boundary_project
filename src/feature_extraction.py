@@ -64,13 +64,18 @@ input_files = glob("../data/processed/mesa/*.csv.gz")
 all_ys = []
 all_features = []
 all_ids = []
+#add by fatemeh 1 line
+from tsfresh.feature_extraction import MinimalFCParameters
 
 for file in input_files:
     df = read_file(file)
     transformed_df, labels = generate_slide_wins(df, 21)
+    #edit by fatemeh 4 lines
+    #extracted_features = extract_features(transformed_df[["activity", "mean_hr", "linetime", "seq_id"]], 
+    #                                 column_id="seq_id", column_sort="linetime")
+    extracted_features = extract_features(df_temp[["activity", "mean_hr", "linetime", "seq_id"]], column_id="seq_id",
+                        column_sort="linetime", default_fc_parameters=MinimalFCParameters())
 
-    extracted_features = extract_features(transformed_df[["activity", "mean_hr", "linetime", "seq_id"]], 
-                                     column_id="seq_id", column_sort="linetime")
     
     impute(extracted_features)
     features_filtered = select_features(extracted_features, labels)
