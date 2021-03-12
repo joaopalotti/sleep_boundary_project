@@ -94,6 +94,24 @@ for file in input_files:
 # all_ys.to_csv("all_ys_win21.csv.gz", index=False)
 # all_ids.to_csv("all_ids_win21.csv.gz", index=False)
 
+#add bt fatemeh 17 lines
+cnt = 0
+for df_feature in all_features:
+     filename = "file" + str(cnt)
+     df_feature.to_csv(filename, index = False)
+     cnt += 1
+     
+cnt = 0
+for label in all_ys:
+     filename = "ys" + str(cnt)
+     label.to_csv(filename, index = False)
+     cnt += 1
+
+cnt = 0
+for ids in all_ids:
+    filename = "ids" + str(cnt)
+    ids.to_csv(filename, index = False)
+    cnt += 1
 # +
 # TODO: use sklearn pipelines to perform a 5-CV evaluation and predictions of the labels
 #all_features = pd.read_csv("all_features_win21.csv.gz")
