@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.7.1
+#       jupytext_version: 1.10.3
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -25,6 +25,7 @@ from glob import glob
 from datetime import timedelta
 from tsfresh import select_features, extract_features
 from tsfresh.utilities.dataframe_functions import impute
+from tsfresh.feature_extraction import MinimalFCParameters
 
 from sklearn.model_selection import KFold
 
@@ -59,60 +60,44 @@ def generate_slide_wins(df, winsize=11):
 
 
 # +
-# This cell will take many many many many hours to run....we can think of better ways to process it
+# to prevent from having many features, we are using MinimalFCParameters 
+
 input_files = glob("../data/processed/mesa/*.csv.gz")
 all_ys = []
 all_features = []
 all_ids = []
-#add by fatemeh 1 line
-from tsfresh.feature_extraction import MinimalFCParameters
 
 for file in input_files:
     df = read_file(file)
     transformed_df, labels = generate_slide_wins(df, 21)
-    #edit by fatemeh 4 lines
-    #extracted_features = extract_features(transformed_df[["activity", "mean_hr", "linetime", "seq_id"]], 
-    #                                 column_id="seq_id", column_sort="linetime")
-    extracted_features = extract_features(df_temp[["activity", "mean_hr", "linetime", "seq_id"]], column_id="seq_id",
+    
+    extracted_features = extract_features(transformed_df[["activity", "mean_hr", "linetime", "seq_id"]], column_id="seq_id",
                         column_sort="linetime", default_fc_parameters=MinimalFCParameters())
 
     
     impute(extracted_features)
-    #edit by fatemeh 1 line
-    #features_filtered = select_features(extracted_features, labels) #we alreadu have selected features and doesn't need this function
     
     ids = pd.Series(labels.shape[0]*[df["mesaid"].unique()[0]])
-    all_features.append(features_filtered)
+    all_features.append(extracted_features)
     all_ys.append(labels)
     all_ids.append(ids)
 
 
 # +
-# This process took long time, but I am saving the final dataframes to files here...
-# Just need to load those into memory...
+# concat all features, ids, and labels
 
-# all_features.to_csv("all_features_win21.csv.gz", index=False)
-# all_ys.to_csv("all_ys_win21.csv.gz", index=False)
-# all_ids.to_csv("all_ids_win21.csv.gz", index=False)
+all_ids = pd.concat(all_ids)
+all_features = pd.concat(all_features)
+all_ys = pd.concat(all_ys)
 
-#add bt fatemeh 17 lines
-cnt = 0
-for df_feature in all_features:
-     filename = "file" + str(cnt)
-     df_feature.to_csv(filename, index = False)
-     cnt += 1
-     
-cnt = 0
-for label in all_ys:
-     filename = "ys" + str(cnt)
-     label.to_csv(filename, index = False)
-     cnt += 1
+# +
+# write into a csv
 
-cnt = 0
-for ids in all_ids:
-    filename = "ids" + str(cnt)
-    ids.to_csv(filename, index = False)
-    cnt += 1
+all_features.to_csv("all_features_win21.csv.gz", index=False)
+all_ys.to_csv("all_ys_win21.csv.gz", index=False)
+all_ids.to_csv("all_ids_win21.csv.gz", index=False)
+
+
 # +
 # TODO: use sklearn pipelines to perform a 5-CV evaluation and predictions of the labels
 #all_features = pd.read_csv("all_features_win21.csv.gz")
