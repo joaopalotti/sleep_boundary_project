@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.10.3
+#       jupytext_version: 1.7.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -26,19 +26,22 @@ from datetime import timedelta
 from tsfresh import select_features, extract_features
 from tsfresh.utilities.dataframe_functions import impute
 from tsfresh.feature_extraction import MinimalFCParameters
+from pycaret.classification import *
 
 from sklearn.model_selection import KFold
 
 # +
 # read features
-
-all_features = pd.read_csv("../data/all_features/all_features_win21.csv")
-all_ids = pd.read_csv("../data/all_features/all_ids_win21.csv")
-all_ys = pd.read_csv("../data/all_features/all_ys_win21.csv")
+all_features = pd.read_csv("../data/all_features/all_features_win21.csv.gz")
+all_ids = pd.read_csv("../data/all_features/all_ids_win21.csv.gz")
+all_ys = pd.read_csv("../data/all_features/all_ys_win21.csv.gz")
 
 # change column names
 all_ids.columns = ['id']
 all_ys.columns = ['label']
+# -
+
+all_features.shape
 
 
 # +
@@ -53,22 +56,37 @@ def map_id_fold(all_ids, n):
     return pd.DataFrame(mapping)
 
 
-df_pid_fold = map_id_fold(all_ids, 3)  #Change fold later
+df_pid_fold = map_id_fold(all_ids, 11)  #Change fold later
 df_pid_fold = pd.merge(df_pid_fold, all_ids)
 
 all_data = pd.concat([df_pid_fold.reset_index(drop=True), all_ys.reset_index(drop=True), all_features.reset_index(drop=True)], axis=1)
 
 
 # +
-from pycaret.classification import *
+test_data = all_data[all_data["fold"] == 10] # handout and never used in the training
+train_data = all_data[all_data["fold"] != 10] 
 
-experiment = setup(data=all_data, 
-                   target="label",
-                   
+train_data.shape, test_data.shape
+# -
+
+# TODO: need to save the pid of the testset:
+test_data["id"].unique()
+
+print("Total number of users: %d" % all_data["id"].unique().shape[0])
+print("In the training set: %d" % train_data["id"].unique().shape[0])
+print("In the test set: %d" %  test_data["id"].unique().shape[0])
+
+
+# +
+
+def get_setup(gt_label="gt_window5min", other_parameters...):
+    
+    experiment = setup(data=train_data, test_data= test_data,
+                   target=gt_label,
                    session_id=123,
                    normalize=True,
                    transformation=True,
-                   fold = 3, #Change it later
+                   # fold = 9, #Change it later
                    fold_strategy="groupkfold",
                    fold_groups="fold",
                    ignore_features=["id","fold"],
@@ -80,17 +98,21 @@ experiment = setup(data=all_data,
                    polynomial_features = True,
 #                    fix_imbalance = True,
                    )
+    
+    return experiment
 
 
-# +
+# -
+
+
 # columns that had been removed unexpectedly!
-
 diff = [item for item in all_data.columns if item not in get_config('X_train').columns]
 diff
-# -
 
 # # Final Model
 #
+
+et = create_model("et")
 
 best_model = compare_models(fold = 3, sort = 'F1', n_select = 3 )
 
