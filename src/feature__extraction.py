@@ -208,7 +208,7 @@ df_pid_fold = pd.merge(df_pid_fold, all_ids)
 
 all_data = pd.concat([df_pid_fold.reset_index(drop=True), all_ys_5min.reset_index(drop=True),
                       all_ys_0min.reset_index(drop=True), all_features.reset_index(drop=True), 
-                      all_activity.reset_index(drop=True),all_linetime.reset_index(drop=True)] axis=1)
+                      all_activity.reset_index(drop=True),all_linetime.reset_index(drop=True)], axis=1)
 
 
 
