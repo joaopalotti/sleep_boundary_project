@@ -249,7 +249,7 @@ def pycater_setup(gt_label = "label_5min", ignore_feat= ["id", "fold", "linetime
                    transformation=True,
                    fold_strategy="groupkfold",
                    fold_groups="fold",
-                   ignore_features= ignore_feat
+                   ignore_features= ignore_feat,
                    silent=True,
                    use_gpu=False,
 #                    normalize_method = 'zscore',
@@ -264,7 +264,7 @@ def pycater_setup(gt_label = "label_5min", ignore_feat= ["id", "fold", "linetime
 
 # # Setup with 5min tolerance
 
-experiment = pycater_setup(gt_label = "label_5min", ["id", "fold", "linetime", "activity", "label_0min"])
+experiment = pycater_setup(gt_label = "label_5min", ignore_feat = ["id", "fold", "linetime", "activity", "label_0min"])
 
 # +
 # columns that had been removed by pycaret
@@ -282,7 +282,7 @@ best_model_5min
 
 # # setup without tolerance
 
-experiment = pycater_setup(gt_label = "label_0min", ["id", "fold", "linetime", "activity", "label_5min"])
+experiment = pycater_setup(gt_label = "label_0min", ignore_feat = ["id", "fold", "linetime", "activity", "label_5min"])
 
 best_model_0min = compare_models( fold = 10, sort = 'F1', n_select = 3 )
 
