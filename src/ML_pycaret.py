@@ -61,7 +61,7 @@ for m in tqdm(["lr", "rf", "et", "lda", "catboost", "lightgbm"]):
     experiment_filename = "sleep_ml_%s" % (m)
     print("Creating a %s model." % (m))
     model = create_model(m)
-    model = tune_model(lr_model, n_iter=20, choose_better=True)
+    model = tune_model(model, n_iter=20, choose_better=True)
 
     print("Creating final model to save results to disk............")
     model = create_model(model)
