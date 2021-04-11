@@ -161,7 +161,7 @@ def calculate_classification_metrics(labels, predictions):
     return metrics.accuracy_score(labels, predictions),\
             metrics.precision_score(labels, predictions), \
             metrics.recall_score(labels, predictions), \
-            metrics.f1_score(labels, predictions, average='micro'), \
+            metrics.f1_score(labels, predictions, average='weighted'), \
             metrics.matthews_corrcoef(labels, predictions)
 
 
@@ -292,7 +292,7 @@ class MyNet(pl.LightningModule):
             ('dropout', nn.Dropout(self.dropout_lin)),
             ('lin2', nn.Linear(4, 1))
         ]))
-
+        
         
     def forward(self, x):
         # Probably we want to use the hidden state here
@@ -341,7 +341,9 @@ class MyNet(pl.LightningModule):
         print("(Validation) Total Loss: %.4f" % val_loss)
 
         y = torch.stack([row["y"] for row in outputs]).view(-1).cpu()
-        pred = torch.stack([row['preds'].max(1, keepdim=True)[1] for row in outputs]).view(-1).cpu()
+        pred = torch.stack([row['preds'] for row in outputs]).view(-1)
+        pred = torch.round(torch.sigmoid(pred))
+        pred = pred.cpu()
             
         acc, prec, rec, f1, mcc = calculate_classification_metrics(y, pred)
         self.log("acc", acc)
@@ -358,7 +360,9 @@ class MyNet(pl.LightningModule):
         print("(Test) Total Loss: %.4f" % test_loss)
 
         y = torch.stack([row["y"] for row in outputs]).view(-1).cpu()
-        pred = torch.stack([row['preds'].max(1, keepdim=True)[1] for row in outputs]).view(-1).cpu()
+        pred = torch.stack([row['preds'] for row in outputs]).view(-1)
+        pred = torch.round(torch.sigmoid(pred))
+        pred = pred.cpu()
             
         acc, prec, rec, f1, mcc = calculate_classification_metrics(y, pred)
         self.log("acc", acc)
@@ -368,6 +372,9 @@ class MyNet(pl.LightningModule):
         self.log("mcc", mcc)
         print("TEST: Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (acc, prec, rec, f1, mcc))
 
+
+# ### The next two cells are able to run the network one single time. 
+# It is useful for us to debug the network before running the param tuning
 
 # +
 # datafolder = "../data/processed_pycaret_5min/."
@@ -379,53 +386,50 @@ class MyNet(pl.LightningModule):
 #     save_data(datafolder, X, Y)
 
 # +
-# # # THis cell runs the network one time. 
-# # # We can see that we need parameter tunning
+batch_size = 2024
+dropout_lstm = 0.00
+dropout_lin = 0.00
+learning_rate = 0.01
+weight_decay = 0.01
+opt_step_size = 10
+hidden_dim = 64
+bidirectional = True
+lstm_layers = 1
+lstm_output_dim=16
 
-# batch_size = 2024
-# dropout_lstm = 0.00
-# dropout_lin = 0.00
-# learning_rate = 0.01
-# weight_decay = 0.01
-# opt_step_size = 10
-# hidden_dim = 64
-# bidirectional = True
-# lstm_layers = 1
-# lstm_output_dim=16
+hparams = Namespace(batch_size=batch_size,
+                    dropout_lstm=dropout_lstm,
+                    dropout_lin=dropout_lin,
+                    #
+                    # Optmizer configs
+                    #
+                    opt_learning_rate=learning_rate,
+                    opt_weight_decay=weight_decay,
+                    opt_step_size=opt_step_size,
+                    opt_gamma=0.5,
+                    # LSTM configs
+                    hidden_dim=hidden_dim,
+                    bidirectional=bidirectional,
+                    lstm_layers=lstm_layers,
+                    lstm_output_dim=lstm_output_dim,
+                    )
 
-# hparams = Namespace(batch_size=batch_size,
-#                     dropout_lstm=dropout_lstm,
-#                     dropout_lin=dropout_lin,
-#                     #
-#                     # Optmizer configs
-#                     #
-#                     opt_learning_rate=learning_rate,
-#                     opt_weight_decay=weight_decay,
-#                     opt_step_size=opt_step_size,
-#                     opt_gamma=0.5,
-#                     # LSTM configs
-#                     hidden_dim=hidden_dim,
-#                     bidirectional=bidirectional,
-#                     lstm_layers=lstm_layers,
-#                     lstm_output_dim=lstm_output_dim,
-#                     )
+model = MyNet(hparams) 
+model.double()
 
-# model = MyNet(hparams) 
-# model.double()
+train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
 
-# train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
-# val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
-# test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+path_ckps = "./lightning_logs/test/"
 
-# path_ckps = "./lightning_logs/test/"
+early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
+ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
+                      prefix="", monitor="loss", mode="min")
 
-# early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
-# ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
-#                       prefix="", monitor="loss", mode="min")
-
-# trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, callbacks=[early_stop_callback, ckp])
-# trainer.fit(model, train, val)
-# res = trainer.test(test_dataloaders=test)
+trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, callbacks=[early_stop_callback, ckp])
+trainer.fit(model, train, val)
+res = trainer.test(test_dataloaders=test)
 
 # -
 def hyper_tuner(config, datafolder = "/home/palotti/github/sleep_boundary_project/data/processed_pycaret_5min/"):
@@ -459,11 +463,11 @@ def hyper_tuner(config, datafolder = "/home/palotti/github/sleep_boundary_projec
     path_ckps = "./lightning_logs/test/"
 
     if monitor == "mcc":
-        early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='mcc', mode='max', patience=3)
+        early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='mcc', mode='max', patience=5)
         ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
                               monitor="mcc", mode="max")
     else:
-        early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=3)
+        early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
         ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
                               monitor="loss", mode="min")
     
@@ -490,7 +494,7 @@ def hyper_tuner(config, datafolder = "/home/palotti/github/sleep_boundary_projec
     tune_metrics = {"loss": "loss", "mcc": "mcc", "acc": "acc", "prec": "prec", "rec": "rec", "f1": "f1"}
     tune_cb = TuneReportCallback(tune_metrics, on="validation_end")
     
-    trainer = Trainer(gpus=0, min_epochs=2, max_epochs=5,
+    trainer = Trainer(gpus=0, min_epochs=2, max_epochs=100,
                       callbacks=[early_stop_callback, ckp, tune_cb])
     trainer.fit(model, train, val)
 
@@ -513,7 +517,6 @@ def run_tuning_procedure(config, expname, ntrials, ncpus, ngpus):
     analysis.results_df.to_csv("all_results_exp%s_trials%d.csv" % (expname, ntrials))
     print("Best 5 results")
     print(analysis.results_df.sort_values(by="mcc", ascending=False).head(5))
-
 
 
 # +
