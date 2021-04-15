@@ -386,53 +386,53 @@ class MyNet(pl.LightningModule):
 #     save_data(datafolder, X, Y)
 
 # +
-batch_size = 2024
-dropout_lstm = 0.00
-dropout_lin = 0.00
-learning_rate = 0.01
-weight_decay = 0.01
-opt_step_size = 10
-hidden_dim = 64
-bidirectional = True
-lstm_layers = 1
-lstm_output_dim=16
+# batch_size = 2024
+# dropout_lstm = 0.00
+# dropout_lin = 0.00
+# learning_rate = 0.01
+# weight_decay = 0.01
+# opt_step_size = 10
+# hidden_dim = 64
+# bidirectional = True
+# lstm_layers = 1
+# lstm_output_dim=16
 
-hparams = Namespace(batch_size=batch_size,
-                    dropout_lstm=dropout_lstm,
-                    dropout_lin=dropout_lin,
-                    #
-                    # Optmizer configs
-                    #
-                    opt_learning_rate=learning_rate,
-                    opt_weight_decay=weight_decay,
-                    opt_step_size=opt_step_size,
-                    opt_gamma=0.5,
-                    # LSTM configs
-                    hidden_dim=hidden_dim,
-                    bidirectional=bidirectional,
-                    lstm_layers=lstm_layers,
-                    lstm_output_dim=lstm_output_dim,
-                    )
+# hparams = Namespace(batch_size=batch_size,
+#                     dropout_lstm=dropout_lstm,
+#                     dropout_lin=dropout_lin,
+#                     #
+#                     # Optmizer configs
+#                     #
+#                     opt_learning_rate=learning_rate,
+#                     opt_weight_decay=weight_decay,
+#                     opt_step_size=opt_step_size,
+#                     opt_gamma=0.5,
+#                     # LSTM configs
+#                     hidden_dim=hidden_dim,
+#                     bidirectional=bidirectional,
+#                     lstm_layers=lstm_layers,
+#                     lstm_output_dim=lstm_output_dim,
+#                     )
 
-model = MyNet(hparams) 
-model.double()
+# model = MyNet(hparams) 
+# model.double()
 
-train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
-val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
-test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+# train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+# val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+# test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
 
-path_ckps = "./lightning_logs/test/"
+# path_ckps = "./lightning_logs/test/"
 
-early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
-ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
-                      prefix="", monitor="loss", mode="min")
+# early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
+# ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
+#                       prefix="", monitor="loss", mode="min")
 
-trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, callbacks=[early_stop_callback, ckp])
-trainer.fit(model, train, val)
-res = trainer.test(test_dataloaders=test)
+# trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, callbacks=[early_stop_callback, ckp])
+# trainer.fit(model, train, val)
+# res = trainer.test(test_dataloaders=test)
 
 # -
-def hyper_tuner(config, datafolder = "/home/palotti/github/sleep_boundary_project/data/processed_pycaret_5min/"):
+def hyper_tuner(config, datafolder):
     
     monitor = config["monitor"] # What to monitor? MCC/F1 or loss?
     
@@ -499,9 +499,9 @@ def hyper_tuner(config, datafolder = "/home/palotti/github/sleep_boundary_projec
     trainer.fit(model, train, val)
 
 
-def run_tuning_procedure(config, expname, ntrials, ncpus, ngpus):
+def run_tuning_procedure(datafolder, config, expname, ntrials, ncpus, ngpus):
 
-    trainable = tune.with_parameters(hyper_tuner)
+    trainable = tune.with_parameters(hyper_tuner, datafolder=datafolder)
 
     analysis = tune.run(trainable,
                         resources_per_trial={"cpu": ncpus, "gpu": ngpus},
@@ -520,6 +520,8 @@ def run_tuning_procedure(config, expname, ntrials, ncpus, ngpus):
 
 
 # +
+datafolder = "/home/palotti/github/sleep_boundary_project/data/processed_pycaret_5min/"
+
 config_lstm = {
     # What to monitor? MCC/F1 or loss?
     "monitor": tune.choice(["loss", "mcc"]),  
@@ -538,10 +540,10 @@ config_lstm = {
     "weight_decay": tune.loguniform(1e-5, 1e-2),
 }
 
-ncpus=12
-ngpus=0
-ntrials=2
+ncpus=16
+ngpus=3
+ntrials=1000
 exp_name = "test"
 
-run_tuning_procedure(config_lstm, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus)
+run_tuning_procedure(datafolder, config_lstm, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus)
 
