@@ -30,7 +30,7 @@ from sklearn.model_selection import KFold
 
 def pycater_setup(train_data, test_data, 
                   gt_label = "label_5min",
-                  ignore_feat= ["id", "fold", "linetime", "activity"],
+                  ignore_feat= ["id", "fold", "linetime", "activity", "gt_time"],
                   use_gpu=False):
     
     experiment = setup(data=train_data, test_data=test_data,

@@ -83,7 +83,7 @@ def data_exists(datafolder, suffix="pycaret"):
         
     return True
 
-def save_data(output_folder, X, Y):
+def save_data(output_folder, X, Y, test_pids):
     X["train"].to_csv("%s/X_train_pycaret.csv.gz" % (output_folder), index=False)
     X["val"].to_csv("%s/X_val_pycaret.csv.gz" % (output_folder), index=False)
     X["test"].to_csv("%s/X_test_pycaret.csv.gz" % (output_folder), index=False)
@@ -92,6 +92,8 @@ def save_data(output_folder, X, Y):
     Y["val"].to_csv("%s/y_val_pycaret.csv.gz" % (output_folder), index=False)
     Y["test"].to_csv("%s/y_test_pycaret.csv.gz" % (output_folder), index=False)
 
+    test_pids.to_csv("%s/test_pids.csv.gz" % (output_folder))
+    
 def load_data(datafolder):
     X, Y = {}, {}
     X["train"] = pd.read_csv("%s/X_train_pycaret.csv.gz" % (datafolder))
@@ -102,17 +104,22 @@ def load_data(datafolder):
     Y["val"] = pd.read_csv("%s/y_val_pycaret.csv.gz" % (datafolder))
     Y["test"] = pd.read_csv("%s/y_test_pycaret.csv.gz" % (datafolder))
     
-    return X, Y
+    test_pids = pd.read_csv("%s/test_pids.csv.gz" % (datafolder))
+    
+    return X, Y, test_pids
 
 
 # -
 
-def extract_features(train_path="train_data.csv.gz", test_path="test_data.csv.gz"):
+def extract_features(train_path="train_data.csv.gz", test_path="test_data.csv.gz", use_gpu=False):
     train_data = pd.read_csv(train_path)
     test_data = pd.read_csv(test_path)
 
+    test_pids = test_data[["pid", "gt_time"]]
+    
     experiment = pycater_setup(train_data, test_data, 
-                               gt_label = "ground_truth", ignore_feat = ["pid", "fold"])
+                               gt_label = "ground_truth", ignore_feat = ["pid", "fold", "gt_time"],
+                               use_gpu=use_gpu)
 
     # Now we extract the postprocessed features
     # and append back the fold numbers to further break it into train/val
@@ -122,6 +129,11 @@ def extract_features(train_path="train_data.csv.gz", test_path="test_data.csv.gz
     y_train = get_config("y_train")
     y_test = get_config("y_test")
 
+    if isinstance(y_test, pd.Series):
+        y_test = y_test.to_frame()
+    if isinstance(y_train, pd.Series):
+        y_train = y_train.to_frame()
+    
     X_train = pd.concat([train_data["fold"], X_train], axis=1)
     y_train = pd.concat([train_data["fold"], y_train], axis=1)
     
@@ -138,9 +150,9 @@ def extract_features(train_path="train_data.csv.gz", test_path="test_data.csv.gz
     del X_train["fold"], X_val["fold"], y_val["fold"], y_train["fold"]
     
     X = {"train": X_train, "val": X_val, "test": X_test}
-    Y = {"train": Y_train, "val": Y_val, "test": Y_test}
+    Y = {"train": y_train, "val": y_val, "test": y_test}
     
-    return X, Y
+    return X, Y, test_pids
 
 
 # +
@@ -166,7 +178,6 @@ def calculate_classification_metrics(labels, predictions):
 
 
 # +
-    
 def get_number_internal_layers(n, output_size):
     """
     E.g.:
@@ -276,7 +287,7 @@ class MyNet(pl.LightningModule):
         self.batch_size = hparams.batch_size
         
         # self.net = nn.Sequential(nn.Linear(113, 64), nn.ReLU(inplace=True))
-        self.net = LSTMLayer(input_size=113, break_point=113,
+        self.net = LSTMLayer(input_size=110, break_point=110,
                              dropout_lstm=self.dropout_lstm,
                              dropout_lin=self.dropout_lin,
                              hidden_dim=self.hidden_dim,
@@ -372,66 +383,144 @@ class MyNet(pl.LightningModule):
         self.log("mcc", mcc)
         print("TEST: Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (acc, prec, rec, f1, mcc))
 
-
 # ### The next two cells are able to run the network one single time. 
 # It is useful for us to debug the network before running the param tuning
 
 # +
-# datafolder = "../data/processed_pycaret_5min/."
+datafolder = "../data/processed_pycaret_5min/."
 
-# if data_exists(datafolder):
-#     X, Y = load_data(datafolder)
-# else:
-#     X, Y = extract_features("train_data.csv.gz", "test_data.csv.gz")
-#     save_data(datafolder, X, Y)
+if data_exists(datafolder):
+    X, Y, test_pids = load_data(datafolder)
+else:
+    X, Y, test_pids = extract_features("train_data.csv.gz", "test_data.csv.gz", use_gpu=True)
+    save_data(datafolder, X, Y, test_pids)
 
 # +
-# batch_size = 2024
-# dropout_lstm = 0.00
-# dropout_lin = 0.00
-# learning_rate = 0.01
-# weight_decay = 0.01
-# opt_step_size = 10
-# hidden_dim = 64
-# bidirectional = True
-# lstm_layers = 1
-# lstm_output_dim=16
+batch_size = 1024
+dropout_lstm = 0.87986
+dropout_lin = 0.087821
+learning_rate = 0.00021999
+weight_decay = 0.00029587
+opt_step_size = 15
+hidden_dim = 128
+bidirectional = True
+lstm_layers = 2
+lstm_output_dim= 129
 
-# hparams = Namespace(batch_size=batch_size,
-#                     dropout_lstm=dropout_lstm,
-#                     dropout_lin=dropout_lin,
-#                     #
-#                     # Optmizer configs
-#                     #
-#                     opt_learning_rate=learning_rate,
-#                     opt_weight_decay=weight_decay,
-#                     opt_step_size=opt_step_size,
-#                     opt_gamma=0.5,
-#                     # LSTM configs
-#                     hidden_dim=hidden_dim,
-#                     bidirectional=bidirectional,
-#                     lstm_layers=lstm_layers,
-#                     lstm_output_dim=lstm_output_dim,
-#                     )
+hparams = Namespace(batch_size=batch_size,
+                    dropout_lstm=dropout_lstm,
+                    dropout_lin=dropout_lin,
+                    #
+                    # Optmizer configs
+                    #
+                    opt_learning_rate=learning_rate,
+                    opt_weight_decay=weight_decay,
+                    opt_step_size=opt_step_size,
+                    opt_gamma=0.5,
+                    # LSTM configs
+                    hidden_dim=hidden_dim,
+                    bidirectional=bidirectional,
+                    lstm_layers=lstm_layers,
+                    lstm_output_dim=lstm_output_dim,
+                    )
 
-# model = MyNet(hparams) 
-# model.double()
+model = MyNet(hparams) 
+model.double()
 
-# train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
-# val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
-# test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
 
-# path_ckps = "./lightning_logs/test/"
+path_ckps = "./lightning_logs/test/"
 
-# early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
-# ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
-#                       prefix="", monitor="loss", mode="min")
+early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
+ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
+                      prefix="", monitor="loss", mode="min")
 
-# trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, callbacks=[early_stop_callback, ckp])
-# trainer.fit(model, train, val)
-# res = trainer.test(test_dataloaders=test)
+trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp])
+trainer.fit(model, train, val)
+res = trainer.test(test_dataloaders=test)
+
+# +
+model.eval()
+pred = model(torch.tensor(X["test"].values.astype(np.float)))
+pred = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred)).detach().view(-1))], axis=1)
+
+pred.to_csv("predictions_nn.csv.gz", index=False)
+
 
 # -
+
+def eval_n_times(config, datafolder, n, gpus=1, patience=3):
+    
+    monitor = config["monitor"] # What to monitor? MCC/F1 or loss?
+    
+    # High level network configs
+    batch_size = config["batch_size"]
+    
+    # Lower level details
+    bidirectional = config["bidirectional"]
+    hidden_dim = config["hidden_dim"]
+    lstm_layers = config["lstm_layers"]
+    dropout_lstm = config["dropout_lstm"]
+    dropout_lin = config["dropout_lin"]
+    lstm_output_dim = config["lstm_output_dim"]
+    
+    # Optmizer
+    learning_rate = config["learning_rate"]
+    opt_step_size = config["opt_step_size"]
+    weight_decay = config["weight_decay"]
+    
+    X, Y = load_data(datafolder)
+    
+    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+    val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+    test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+    
+    results = []
+    for s in range(n):
+        seed.seed_everything(s)
+
+        path_ckps = "./lightning_logs/test/"
+
+        if monitor == "mcc":
+            early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='mcc', mode='max', patience=patience)
+            ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
+                                  monitor="mcc", mode="max")
+        else:
+            early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=patience)
+            ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
+                                  monitor="loss", mode="min")
+                                                                                        
+        hparams = Namespace(batch_size=batch_size,
+                            #
+                            # Optmizer configs
+                            #
+                            opt_learning_rate=learning_rate,
+                            opt_weight_decay=weight_decay,
+                            opt_step_size=opt_step_size,
+                            opt_gamma=0.5,
+                            # LSTM configs
+                            hidden_dim=hidden_dim,
+                            bidirectional=bidirectional,
+                            lstm_layers=lstm_layers,
+                            lstm_output_dim=lstm_output_dim,
+                            dropout_lstm=dropout_lstm,
+                            dropout_lin=dropout_lin,
+                           )
+
+        model = MyNet(hparams)
+        model.double()
+
+        trainer = Trainer(gpus=gpus, min_epochs=2, max_epochs=100, deterministic=True,
+                          callbacks=[early_stop_callback, ckp])
+        trainer.fit(model, train, val)
+        res = trainer.test(test_dataloaders=test)
+        results.append(res[0])
+        
+    return pd.DataFrame(results)
+
+
 def hyper_tuner(config, datafolder):
     
     monitor = config["monitor"] # What to monitor? MCC/F1 or loss?
@@ -494,7 +583,7 @@ def hyper_tuner(config, datafolder):
     tune_metrics = {"loss": "loss", "mcc": "mcc", "acc": "acc", "prec": "prec", "rec": "rec", "f1": "f1"}
     tune_cb = TuneReportCallback(tune_metrics, on="validation_end")
     
-    trainer = Trainer(gpus=0, min_epochs=2, max_epochs=100,
+    trainer = Trainer(gpus=0, min_epochs=2, max_epochs=100, deterministic=True,
                       callbacks=[early_stop_callback, ckp, tune_cb])
     trainer.fit(model, train, val)
 
@@ -547,3 +636,15 @@ exp_name = "test"
 
 run_tuning_procedure(datafolder, config_lstm, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus)
 
+
+# +
+datafolder = "/home/palotti/github/sleep_boundary_project/data/processed_pycaret_5min/"
+best_parameters = {"batch_size": 1024, "bidirectional": True, "dropout_lin": 0.087821, 
+                   "dropout_lstm": 0.87986, "hidden_dim": 128, "learning_rate": 0.00021999,
+                   "lstm_layers": 2, "lstm_output_dim": 129, "monitor": "loss", 
+                   "opt_step_size": 15, "weight_decay": 0.00029587}
+
+results_MyNet_MP = eval_n_times(best_parameters, datafolder, 10, gpus=0, patience=3)
+# -
+
+results_MyNet_MP.mean(), results_MyNet_MP.std() 

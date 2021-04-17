@@ -1,12 +1,12 @@
 # ---
 # jupyter:
 #   jupytext:
-#     formats: ipynb,py:light
+#     formats: py:light
 #     text_representation:
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.10.3
+#       jupytext_version: 1.7.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -65,10 +65,6 @@ def setup_experiment(file_path, start_hour=15):
     return exp
 
 
-# +
-# w.data
-# -
-
 DATAPATH = "../data/raw/collection_mesa_hr_30_240/*_combined.csv.gz"
 exp = setup_experiment(DATAPATH)
 
@@ -78,12 +74,6 @@ swa.run_all_sleep_algorithms(activityIdx="activity", rescoring=True, inplace=Tru
 
 # +
 sbd = SleepBoudaryDetector(exp)
-sbd.detect_sleep_boundaries(strategy="annotation", 
-                            output_col="ground_truth_0min",
-                            annotation_col="sleep",
-                            annotation_merge_tolerance_in_minutes=0,
-                            annotation_only_largest_sleep_period=False
-                           )
 
 sbd.detect_sleep_boundaries(strategy="annotation", 
                             output_col="ground_truth_5min",
@@ -102,10 +92,6 @@ for variant in ["", "Rescored"]:
                                     annotation_only_largest_sleep_period=False
                                     )
 # +
-# for w in exp.get_all_wearables():
-#     print(w.data)
-
-# +
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
 def get_average(metric_fnt, exp, gt_col="ground_truth", other_col="SleepWindowSadeh"):
@@ -115,15 +101,12 @@ def get_average(metric_fnt, exp, gt_col="ground_truth", other_col="SleepWindowSa
         tmp_acc.append(tmp)
     return np.array(tmp_acc)
     
-    
 
 for variant in ["", "Rescored"]:
     for alg in ["Sadeh", "Sazonov", "ColeKripke", "Oakley10", "ScrippsClinic"]:
         alg = variant + alg
         m_5min = get_average(matthews_corrcoef, exp, "ground_truth_5min", "SleepWindow%s" % (alg))
-        m_0min = get_average(matthews_corrcoef, exp, "ground_truth_0min", "SleepWindow%s" % (alg))
         print("Alg: %s, Mean_5min tolerance: %.2f" % (alg, m_5min.mean()))
-        print("Alg: %s, Mean_0min tolerance: %.2f" % (alg, m_0min.mean()))
         print("*********")
 
 
@@ -134,18 +117,8 @@ tmp = []
 
 # Ground Truth_5min:
 df_sm = sm.get_sleep_quality("totalSleepTime", wake_sleep_col="ground_truth_5min",
-                              sleep_period_col="ground_truth_5min",
                               outputname= "TST", normalize_per_hour=False)
 df_sm["Alg"] = "GroundTruth_5min"
-tmp.append(df_sm)
-
-
-
-# Ground Truth_0min:
-df_sm = sm.get_sleep_quality("totalSleepTime", wake_sleep_col="ground_truth_0min",
-                              sleep_period_col="ground_truth_0min",
-                              outputname= "TST", normalize_per_hour=False)
-df_sm["Alg"] = "GroundTruth_0min"
 tmp.append(df_sm)
 
 
@@ -156,9 +129,7 @@ for variant in ["", "Rescored"]:
         alg = variant + alg
         
         df_sm = sm.get_sleep_quality("totalSleepTime", wake_sleep_col="SleepWindow%s" % (alg),
-                         sleep_period_col="SleepWindow%s" % (alg),
-                         outputname= "TST", 
-                         normalize_per_hour=False)
+                                     outputname= "TST", normalize_per_hour=False)
         df_sm["Alg"] = alg
         tmp.append(df_sm)
 
