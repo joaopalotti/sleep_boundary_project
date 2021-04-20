@@ -212,6 +212,25 @@ else:
 
 # -
 
+def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
+    """
+    THe df input here is the ``transformed_df`` from the generate_timesiries_df.
+    The raw_cols are features such as 'activity' and/or 'mean_hr'
+    """
+
+    df["tcounter"] = 1
+    df["tcounter"] = df.groupby(seq_id_col)["tcounter"].cumsum()
+
+    pivoted_df = df.pivot(index=seq_id_col, columns="tcounter", values=raw_cols)
+    pivoted_df.columns = ["_".join(map(str, c)) for c in pivoted_df.columns]
+    
+    return pivoted_df
+
+
+
+raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
+raw_features.head()
+
 # define a setting for feature Extraction: {Minimal+Fourieh}
 ext_settings = {
      "activity": {"sum_values": None,
@@ -273,7 +292,6 @@ df_pid_fold = map_id_fold(df_pids, 11)
 df_pid_fold = df_pids.merge(df_pid_fold) #### Fixed!
 
 
-
 # +
 # Convert time to sin_time, cos_time
 def convert_time_sin_cos(df, datetime_col):
@@ -296,146 +314,58 @@ def convert_time_sin_cos(df, datetime_col):
     return day_sin, day_cos
 
 df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
-
 # -
 
-all_data = pd.concat([df_pid_fold.reset_index(drop=True),
+# ### This part of the code concatenates features everything and saves them to disk.
+
+# +
+tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
                       df_label_times.reset_index(drop=True),
                       df_labels.reset_index(drop=True),
                       extracted_features.reset_index(drop=True), 
                       df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
 
-# +
-test_data = all_data[all_data["fold"] == 10] # handout and never used in the training
-train_data = all_data[all_data["fold"] != 10] 
+raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
+                      df_label_times.reset_index(drop=True),
+                      df_labels.reset_index(drop=True),
+                      raw_features.reset_index(drop=True)], axis=1)
 
-train_data.shape, test_data.shape
+
+# +
+test_tsfresh_data = tsfresh_data[tsfresh_data["fold"] == 10] # handout and never used in the training
+train_tsfresh_data = tsfresh_data[tsfresh_data["fold"] != 10] 
+
+test_raw_data = raw_data[raw_data["fold"] == 10] # handout and never used in the training
+train_raw_data = raw_data[raw_data["fold"] != 10] 
+
+train_raw_data.shape, test_raw_data.shape, train_tsfresh_data.shape, test_tsfresh_data.shape
 # -
 
 
-# TODO: need to save the pid of the testset:
-test_ids = test_data["pid"].unique()
-test_ids
+print("Total number of users: %d" % tsfresh_data["pid"].unique().shape[0])
+print("In the training set: %d" % train_tsfresh_data["pid"].unique().shape[0])
+print("In the test set: %d" %  test_tsfresh_data["pid"].unique().shape[0])
 
-
-print("Total number of users: %d" % all_data["pid"].unique().shape[0])
-print("In the training set: %d" % train_data["pid"].unique().shape[0])
-print("In the test set: %d" %  test_data["pid"].unique().shape[0])
-
+# +
 # To remove Json Error from pycarot's setup function
-all_data = all_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-train_data = train_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-test_data = test_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+tsfresh_data = tsfresh_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+train_tsfresh_data = train_tsfresh_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+test_tsfresh_data = test_tsfresh_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
 
-all_data.to_csv("all_data.csv.gz", index=False)
-train_data.to_csv("train_data.csv.gz", index=False)
-test_data.to_csv("test_data.csv.gz", index=False)
-
-# +
-# WE NEED TO MOVE EVERYTHING THAT COMES AFTER THIS ROW TO OTHER SCRIPTS
-# -
-
-
-
-
-
-
-
-
+raw_data = raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+train_raw_data = train_raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+test_raw_data = test_raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
 
 # +
-# all_data = pd.read_csv("all_data.csv.gz")
-# train_data = pd.read_csv("train_data.csv.gz")
-# test_data = pd.read_csv("test_data.csv.gz")
+output_path = "../data/processed/train_test_splits/"
 
-# +
-# def pycater_setup(train_data, test_data, 
-#                   gt_label = "label_5min",
-#                   ignore_feat= ["id", "fold", "linetime", "activity"],
-#                   use_gpu=False):
-    
-#     experiment = setup(data=train_data, test_data=test_data,
-#                        target=gt_label, session_id=123,
-#                        normalize=True, transformation=True,
-#                        fold_strategy="groupkfold", fold_groups="fold",
-#                        ignore_features= ignore_feat,
-#                        silent=True, use_gpu=use_gpu,
-#                        # normalize_method = 'zscore',
-#                        normalize_method = 'minmax',       
-#                        # remove_outliers = True,
-#                        polynomial_features = True,
-#                        # fix_imbalance = True,
-#                    )
-#     return experiment
-# -
+if not os.path.exists(output_path):
+    os.mkdir(output_path)
 
-# # Setup with 5min tolerance
+tsfresh_data.to_csv(os.path.join(output_path, "all_tsfresh_data.csv.gz"), index=False)
+train_tsfresh_data.to_csv(os.path.join(output_path, "train_tsfresh_data.csv.gz"), index=False)
+test_tsfresh_data.to_csv(os.path.join(output_path, "test_tsfresh_data.csv.gz"), index=False)
 
-# +
-# experiment = pycater_setup(train_data, test_data, 
-#                            gt_label = "ground_truth", ignore_feat = ["pid", "fold"])
-
-# +
-#best = compare_models(fold=10, sort='F1', n_select=3)
-#create_model("lr")
-
-# +
-# columns that had been removed by pycaret
-# diff = [item for item in train_data.columns if item not in get_config('X_train').columns]
-# diff
-
-# +
-# et = create_model("et")
-
-# +
-#best_model_5min = compare_models( fold = 10, sort = 'F1', n_select = 3 )
-
-
-# +
-#best_model_5min
-# -
-
-# # setup without tolerance
-
-3experiment = pycater_setup(gt_label = "label_0min", ignore_feat = ["id", "fold", "linetime", "activity", "label_5min"])
-
-# +
-#best_model_0min = compare_models( fold = 10, sort = 'F1', n_select = 3 )
-# -
-
-
-# # Save predictions
-
-# +
-# A loop on top 3 classifiers
-predict_5min = {} #this dict contains the predicted result from classifiers with 5min tolerance
-                  #key represents the rank of model in best model results
-predict_0min = {} #this dict contains the predicted result from classifiers with 0min tolerance
-                  #key represents the rank of model in best model results
-    
-# n = 0 #tuye loop in az 0 ta 2 mire
-for n in range(0, 3):
-    predict_5min[n] = predict_model(best_model_5min[n], data = test_data)
-    predict_0min[n] = predict_model(best_model_0min[n], data = test_data)
-
-    predict_5min[n].reset_index(drop=True, inplace=True)
-    predict_0min[n].reset_index(drop=True, inplace=True)
-    
-    predict_5min[n]['sleep_wake_5min_%sthBest' %(n)] = 0
-    predict_0min[n]['sleep_wake_5min_%sthBest' %(n)] = 0
-
-    for i in range(len(predict_5min[n])):
-        if (predict_5min[n].loc[i, 'Label'] == 'True'):
-            predict_5min[n].at[i, 'sleep_wake_5min_%sthBest' %(n)] = 1 # 0;wake / 1;sleep
-    for i in range(len(predict_0min[n])):
-        if (predict_0min[n].loc[i, 'Label'] == 'True'):
-            predict_0min[n].at[i, 'sleep_wake_0min_%sthBest' %(n)] = 1 # 0;wake / 1;sleep
-        
-    
-    predict_5min[n].drop(predict_5min[n].columns.difference(['id', 'sleep_wake_5min_%sthBest' %(n),'linetime','activity']), axis = 1, inplace=True)   
-    predict_0min[n].drop(predict_0min[n].columns.difference(['id', 'sleep_wake_0min_%sthBest' %(n),'linetime','activity']), axis = 1, inplace=True)   
-
-    # write to the disk the result of classifiers
-    predict_5min[n].to_csv("../data/ML_Classifiers/predict_5min_best%sth.csv.gz" (n), index=False)
-    predict_0min[n].to_csv("../data/ML_Classifiers/predict_0min_best%sth.csv.gz" (n), index=False)
-    
+raw_data.to_csv(os.path.join(output_path, "all_raw_data.csv.gz"), index=False)
+train_raw_data.to_csv(os.path.join(output_path, "train_raw_data.csv.gz"), index=False)
+test_raw_data.to_csv(os.path.join(output_path, "test_raw_data.csv.gz"), index=False)
