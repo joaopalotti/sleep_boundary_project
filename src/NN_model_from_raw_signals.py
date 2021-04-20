@@ -434,7 +434,7 @@ def eval_n_times(config, datafolder, n, gpus=1, patience=3):
     opt_step_size = config["opt_step_size"]
     weight_decay = config["weight_decay"]
     
-    X, Y = load_data(datafolder)
+    X, Y, test_pids = load_data(datafolder)
     
     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
     val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
@@ -504,7 +504,7 @@ def hyper_tuner(config, datafolder):
     opt_step_size = config["opt_step_size"]
     weight_decay = config["weight_decay"]
     
-    X, Y = load_data(datafolder)
+    X, Y, test_pids = load_data(datafolder)
     
     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
     val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
