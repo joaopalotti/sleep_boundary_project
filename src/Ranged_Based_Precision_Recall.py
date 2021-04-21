@@ -1,12 +1,11 @@
 # ---
 # jupyter:
 #   jupytext:
-#     formats: ipynb,py:light
 #     text_representation:
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.10.3
+#       jupytext_version: 1.7.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -43,23 +42,6 @@ def get_ranges(df, col):
 
 
 # +
-# #ecg
-# df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/ecg/lstm_ad.pred")
-# df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/ecg/lstm_ad.real")
-
-#aapl
-df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/aapl/lstm_ad.pred")
-df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/aapl/lstm_ad.real")
-
-#NYC_taxi
-# df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/lstm_ad.pred")
-# df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/lstm_ad.real")
-
-ranges_pred = get_ranges(df_pred, "0")
-ranges_real = get_ranges(df_real, "0")
-
-
-# +
 def positional_bias(i, anomaly_len, kind = "flat"):
     anomaly_len -= 1
     if(kind == "flat"):
@@ -91,7 +73,7 @@ def w(period, overlap_set, bias_kind = "flat"):
 
 # +
 def gamma(x, kind = "default"):
-    if (kind == "default"):
+    if (kind == "default" or kind =="one"):
         return 1
     if (kind == "reciprocal"):
         return 1/x
@@ -153,7 +135,6 @@ def recall(real_anomaly_range, predicted_anomaly_ranges, alpha= 0, bias_kind = "
     return total_recall/len(real_anomaly_range)
 
 
-
 def precision(real_anomaly_range, predicted_anomaly_ranges, alpha= 0, bias_kind = "flat", gamma_kind="reciprocal"):
     total_precision = 0
     for p in predicted_anomaly_ranges:
@@ -171,11 +152,74 @@ def f1(real_anomaly_range, predicted_anomaly_ranges, alpha= 0, bias_kind_r = "fl
     return f1
 
 
-recall(ranges_real, ranges_pred, alpha= 0, bias_kind="front", gamma_kind="reciprocal")
+# +
+# simple
+#df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.pred")
+#df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.real")
+
+# #ecg
+# df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/ecg/lstm_ad.pred")
+# df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/ecg/lstm_ad.real")
+
+#aapl
+#df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/aapl/lstm_ad.pred")
+#df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/aapl/lstm_ad.real")
+
+#NYC_taxi
+# df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.pred")
+# df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.real")
+
+# ranges_pred = get_ranges(df_pred, "0")
+# ranges_real = get_ranges(df_real, "0")
+
+# +
+# Tests that failed 1
+
+df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.pred")
+df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.real")
+
+ranges_pred = get_ranges(df_pred, "0")
+ranges_real = get_ranges(df_real, "0")
+
+alpha_r = 0.99
+gamma_kind = "reciprocal"
+bias_kind_p = "back"
+bias_kind_r = "back"
+
+r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
+p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
+f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
+print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
+
+# +
+# Tests that failed 2
+
+df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.pred")
+df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.real")
+
+ranges_pred = get_ranges(df_pred, "0")
+ranges_real = get_ranges(df_real, "0")
+
+alpha_r = 0.99
+gamma_kind = "one"
+bias_kind_p = "flat"
+bias_kind_r = "flat"
+
+r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
+p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
+f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
+print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
 
 
-precision(ranges_real, ranges_pred, alpha= 0, bias_kind="flat", gamma_kind="reciprocal")
+# 
+# ~/github/TSAD-Evaluator/src]$ ./evaluate -t ../examples/simple/simple.real ../examples/simple/simple.pred 1 0.99 one flat flat
+# Precision = 0.21875
+# Recall = 0.665
+# F-Score = 0.329208
+# Precision is failing for this test
 
-f1(ranges_real, ranges_pred, alpha= 0, bias_kind_r = "front", bias_kind_p = "flat", gamma_kind="reciprocal")
+# -
+
+
 
 
