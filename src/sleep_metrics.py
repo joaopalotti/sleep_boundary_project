@@ -18,6 +18,9 @@
 # ALERT: notebook under construction!
 
 # +
+# %load_ext autoreload
+# %autoreload 2
+    
 import pandas as pd
 import numpy as np
 import os
@@ -28,6 +31,8 @@ from glob import glob
 from hypnospy import Wearable, Experiment
 from hypnospy.data import RawProcessing
 from hypnospy.analysis import SleepMetrics
+
+from Ranged_Based_Precision_Recall import get_ranges, recall, precision, f1
 
 
 # +
@@ -45,7 +50,7 @@ def read_all_files(path):
     return pd.concat(dfs)
 
 def get_modelname_from_file(filename):
-    model = os.path.basename(filename).split("_predictions.csv.gz")[0]
+    model = os.path.basename(filename).split("_predictions")[0]
     model = model.split("sleep_ml_")[1]
     return model
 
@@ -63,7 +68,7 @@ raw_df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.cs
 
 # +
 dfs = []
-for filename in glob("../data/ml_predictions/*_predictions.csv.gz"):
+for filename in glob("../data/ml_predictions/*_predictions_it100.csv.gz"):
     model = get_modelname_from_file(filename)
     dftmp = pd.read_csv(filename)[["Label"]]
     dftmp.columns = [model]
@@ -75,11 +80,10 @@ pred_ml = pd.concat([df_test[["pid", "ground_truth", "gt_time"]], *dfs], axis=1)
 
 # Predictions from the NN model
 
-dfnn = pd.read_csv("./predictions_nn.csv.gz")
-dfnn.columns = ["pid", "gt_time", "lstm"]
+dfnn = pd.read_csv("./predictions_nn.csv.gz").rename(columns={"0":"lstm"})
 dfnn["lstm"] = dfnn["lstm"].astype(np.bool)
 
-dfpredictions = dfnn
+dfpredictions = pd.merge(pred_ml, dfpredictions)
 
 # Merge all files
 #raw_df["hyp_time_col"] = pd.to_datetime(raw_df["hyp_time_col"])
@@ -126,8 +130,7 @@ for variant in ["", "Rescored"]:
 
         
         
-#for alg in ['lda', 'catboost', 'lightgbm', 'rf', 'lr', 'et']:
-for alg in ['lstm']:
+for alg in ['lda', 'catboost', 'lightgbm', 'rf', 'lr', 'et', 'lstm']:
     df_sm = sm.get_sleep_quality("totalSleepTime", wake_sleep_col=alg,
                  #sleep_period_col=alg,
                  outputname= "TST", 
@@ -145,10 +148,51 @@ df_sm.groupby("Alg")["TST"].mean()
 # +
 # In case we want to see the results:
 from hypnospy.analysis import Viewer
+wid = 11
 
-v = Viewer(exp.get_all_wearables()[2])
+v = Viewer(exp.get_all_wearables()[wid])
 v.view_signals(signal_categories=["sleep"],
                sleep_cols=["ground_truth_5min", "lstm", "RescoredScrippsClinic"],
                #signal_as_area=["ground_truth", "SleepWindowScrippsClinic"],
                #alphas={'ground_truth': 0.3, "SleepWindowScrippsClinic": 0.2},
                )
+
+
+# -
+
+def evaluate_precision_recall_time_biased(gt_col="ground_truth_5min",
+                                          other_col="lstm",
+                                          alpha_r = 0.99,
+                                          gamma_kind = "default",
+                                          bias_kind_p = "flat",
+                                          bias_kind_r = "front"):
+
+    rs, ps, f1s = [], [], []
+    for e, w in enumerate(exp.get_all_wearables()):
+        df = w.data
+
+        ranges_real = get_ranges(df, gt_col)
+        ranges_pred = get_ranges(df, other_col)
+
+
+
+        r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
+        p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
+        f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
+        #print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
+        ps.append(p)
+        rs.append(r)
+        f1s.append(f)
+        
+    return np.mean(ps), np.mean(rs), np.mean(f1s)
+
+evaluate_precision_recall_time_biased("ground_truth_5min", "lstm")
+
+evaluate_precision_recall_time_biased("ground_truth_5min", "Sadeh")
+
+evaluate_precision_recall_time_biased("ground_truth_5min", "RescoredScrippsClinic")
+
+for alg in ['Sadeh', 'Sazonov', 'ColeKripke', 'Oakley10', 'ScrippsClinic', 'RescoredSadeh', 
+            'RescoredSazonov', 'RescoredColeKripke', 'RescoredOakley10', 'RescoredScrippsClinic', 
+            'lda', 'catboost', 'lightgbm', 'rf', 'lr', 'et', 'lstm']:
+    print("Alg:", alg, ":", evaluate_precision_recall_time_biased("ground_truth_5min", alg))

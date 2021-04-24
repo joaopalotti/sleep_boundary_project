@@ -30,14 +30,17 @@ import datetime
 def get_ranges(df, col):
     temp = []
     return_array = []
-    for i in range(df.shape[0]):
-        if(df.loc[i, col] == 1):
+    for i in df.index:
+        if(df.loc[i, col] == True):
             temp.append(i)
 
-            if i+1 < df.shape[0] and df.loc[i+1, col] != 1:
+            if i+1 in df.index and df.loc[i+1, col] != True:
                 return_array.append(temp)
                 temp = []
                 continue;
+    
+    if len(temp) > 0:
+        return_array.append(temp)
     return return_array
 
 
@@ -67,7 +70,7 @@ def w(period, overlap_set, bias_kind = "flat"):
         if(period[i] in overlap_set):
             my_val = my_val + bias
             
-    return my_val/max_val
+    return 0 if max_val == 0 else my_val/max_val
 
 
 
@@ -123,7 +126,6 @@ def existence_reward(period_x, range_of_periods_y):
         return 0
 
 
-
 # -
 
 def recall(real_anomaly_range, predicted_anomaly_ranges, alpha= 0, bias_kind = "flat", gamma_kind="reciprocal"):
@@ -151,7 +153,6 @@ def f1(real_anomaly_range, predicted_anomaly_ranges, alpha= 0, bias_kind_r = "fl
     f1 = 2 * ( (r*p) / (r+p))
     return f1
 
-
 # +
 # simple
 #df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.pred")
@@ -173,50 +174,48 @@ def f1(real_anomaly_range, predicted_anomaly_ranges, alpha= 0, bias_kind_r = "fl
 # ranges_real = get_ranges(df_real, "0")
 
 # +
-# Tests that failed 1
+# # Tests that failed 1
+# df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.pred")
+# df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.real")
 
-df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.pred")
-df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/nyc_taxi/luminol.real")
+# ranges_pred = get_ranges(df_pred, "0")
+# ranges_real = get_ranges(df_real, "0")
 
-ranges_pred = get_ranges(df_pred, "0")
-ranges_real = get_ranges(df_real, "0")
+# alpha_r = 0.99
+# gamma_kind = "reciprocal"
+# bias_kind_p = "back"
+# bias_kind_r = "back"
 
-alpha_r = 0.99
-gamma_kind = "reciprocal"
-bias_kind_p = "back"
-bias_kind_r = "back"
-
-r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
-p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
-f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
-print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
+# r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
+# p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
+# f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
+# print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
 
 # +
-# Tests that failed 2
+# # Tests that failed 2
+# df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.pred")
+# df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.real")
 
-df_pred = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.pred")
-df_real = pd.read_csv("https://raw.githubusercontent.com/IntelLabs/TSAD-Evaluator/master/examples/simple/simple.real")
+# ranges_pred = get_ranges(df_pred, "0")
+# ranges_real = get_ranges(df_real, "0")
 
-ranges_pred = get_ranges(df_pred, "0")
-ranges_real = get_ranges(df_real, "0")
+# alpha_r = 0.99
+# gamma_kind = "one"
+# bias_kind_p = "flat"
+# bias_kind_r = "flat"
 
-alpha_r = 0.99
-gamma_kind = "one"
-bias_kind_p = "flat"
-bias_kind_r = "flat"
-
-r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
-p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
-f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
-print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
+# r = recall(ranges_real, ranges_pred, alpha_r, bias_kind_r, gamma_kind)
+# p = precision(ranges_real, ranges_pred, alpha_r, bias_kind_p, gamma_kind)
+# f = f1(ranges_real, ranges_pred, alpha_r, bias_kind_r, bias_kind_p, gamma_kind)
+# print("P: %.6f, R: %.6f, F1: %.6f" % (p, r, f))
 
 
-# 
-# ~/github/TSAD-Evaluator/src]$ ./evaluate -t ../examples/simple/simple.real ../examples/simple/simple.pred 1 0.99 one flat flat
-# Precision = 0.21875
-# Recall = 0.665
-# F-Score = 0.329208
-# Precision is failing for this test
+# # 
+# # ~/github/TSAD-Evaluator/src]$ ./evaluate -t ../examples/simple/simple.real ../examples/simple/simple.pred 1 0.99 one flat flat
+# # Precision = 0.21875
+# # Recall = 0.665
+# # F-Score = 0.329208
+# # Precision is failing for this test
 
 # -
 
