@@ -194,22 +194,6 @@ def load_data(datafolder):
     return transformed_df, df_labels, df_label_times, df_pids
 
 
-# +
-feature_extration_datapath = "../data/feature_extraction/"
-
-if not data_exists(feature_extration_datapath):
-    df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
-    df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
-    win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity", "mean_hr"],
-                                        winsize="0h10t", delta="-0h05t",
-                                        label_col="ground_truth_5min", pid_col="mesaid", time_col="hyp_time_col")
-    
-    transformed_df, df_labels, df_label_times, df_pids = win_result
-    save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
-
-else:
-    transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
-
 # -
 
 def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
@@ -226,10 +210,6 @@ def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
     
     return pivoted_df
 
-
-
-raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
-raw_features.head()
 
 # define a setting for feature Extraction: {Minimal+Fourieh}
 ext_settings = {
@@ -260,39 +240,6 @@ ext_settings = {
 
 
 # +
-feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
-
-if not os.path.exists(feature_extracted):
-    print("Extracting features...")
-    extracted_features = tsfresh.extract_relevant_features(transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
-                                                           df_labels["ground_truth"],
-                                                           column_id="seq_id", column_sort="hyp_time_col",
-                                                           disable_progressbar=True,
-                                                           default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
-    extracted_features.to_csv(feature_extracted, index=False)
-    
-else:
-    print("Reading extracted features from file '%s'..." % (feature_extracted))
-    extracted_features = pd.read_csv(feature_extracted)
-
-
-# +
-def map_id_fold(all_ids, n): 
-    pids = all_ids["pid"].unique().ravel()
-    kf = KFold(n_splits=n, shuffle=True, random_state=42)
-    mapping = []
-    for i, (_, test) in enumerate(kf.split(pids)):
-        for pid_index in test:
-            mapping.append({'fold': i, 'pid': pids[pid_index]})
-
-    return pd.DataFrame(mapping)
-
-
-df_pid_fold = map_id_fold(df_pids, 11)  
-df_pid_fold = df_pids.merge(df_pid_fold) #### Fixed!
-
-
-# +
 # Convert time to sin_time, cos_time
 def convert_time_sin_cos(df, datetime_col):
 
@@ -313,59 +260,118 @@ def convert_time_sin_cos(df, datetime_col):
     day_cos.name = "time_cos"
     return day_sin, day_cos
 
-df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
+
 # -
 
-# ### This part of the code concatenates features everything and saves them to disk.
+def map_id_fold(all_ids, n): 
+    pids = all_ids["pid"].unique().ravel()
+    kf = KFold(n_splits=n, shuffle=True, random_state=42)
+    mapping = []
+    for i, (_, test) in enumerate(kf.split(pids)):
+        for pid_index in test:
+            mapping.append({'fold': i, 'pid': pids[pid_index]})
+
+    return pd.DataFrame(mapping)
+
+
 
 # +
+def save_train_test_splits(output_path, data, label):
+    
+    test_data = data[data["fold"] == 10] # handout and never used in the training
+    train_data = data[data["fold"] != 10] 
+
+    print("Total number of users: %d" % data["pid"].unique().shape[0])
+    print("In the training set: %d" % train_data["pid"].unique().shape[0])
+    print("In the test set: %d" %  test_data["pid"].unique().shape[0])
+    
+    # To remove Json Error from pycarot's setup function
+    data = raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+    train_data = train_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+    test_data = test_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
+
+    data.to_csv(os.path.join(output_path, "all_%s_data.csv.gz" % (label)), index=False)
+    train_data.to_csv(os.path.join(output_path, "train_%s_data.csv.gz" % (label)), index=False)
+    test_data.to_csv(os.path.join(output_path, "test_%s_data.csv.gz" % (label)), index=False)
+
+    
+def convert_str_time(t):
+    if t < 0:
+        return "-" + convert_str_time(-1*t)
+    h = t // 60
+    m = t % 60
+    return "%dh%01dt" % (h,m)
+
+
+# +
+centered = True
+winsize_in_minutes = 10
+
+centered_str = "centered" if centered else "notcentered"
+winsize_str = convert_str_time(winsize_in_minutes)
+delta_str = convert_str_time(-winsize_in_minutes//2) if centered else "0h00t"
+
+train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
+feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
+
+if not os.path.exists(feature_extration_datapath):
+    os.mkdir(feature_extration_datapath)
+
+
+if not data_exists(feature_extration_datapath):
+    df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
+    df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
+    win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity", "mean_hr"],
+                                        winsize=winsize_str, 
+                                        delta=delta_str,
+                                        label_col="ground_truth_5min", pid_col="mesaid", 
+                                        time_col="hyp_time_col")
+    
+    transformed_df, df_labels, df_label_times, df_pids = win_result
+    save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
+
+else:
+    transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
+
+
+# Extract raw features
+raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
+
+feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
+
+if not os.path.exists(feature_extracted):
+    print("Extracting features...")
+    extracted_features = tsfresh.extract_relevant_features(transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
+                                                           df_labels["ground_truth"],
+                                                           column_id="seq_id", column_sort="hyp_time_col",
+                                                           disable_progressbar=True,
+                                                           default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+    extracted_features.to_csv(feature_extracted, index=False)
+    
+else:
+    print("Reading extracted features from file '%s'..." % (feature_extracted))
+    extracted_features = pd.read_csv(feature_extracted)
+
+    
+df_pid_fold = map_id_fold(df_pids, 11)  
+df_pid_fold = df_pids.merge(df_pid_fold) 
+
+df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
+
 tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
-                      df_label_times.reset_index(drop=True),
-                      df_labels.reset_index(drop=True),
-                      extracted_features.reset_index(drop=True), 
-                      df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
+                          df_label_times.reset_index(drop=True),
+                          df_labels.reset_index(drop=True),
+                          extracted_features.reset_index(drop=True), 
+                          df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
 
 raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
                       df_label_times.reset_index(drop=True),
                       df_labels.reset_index(drop=True),
                       raw_features.reset_index(drop=True)], axis=1)
 
+save_train_test_splits(train_test_output_path, tsfresh_data, "tsfresh")
+save_train_test_splits(train_test_output_path, raw_data, "raw")
 
-# +
-test_tsfresh_data = tsfresh_data[tsfresh_data["fold"] == 10] # handout and never used in the training
-train_tsfresh_data = tsfresh_data[tsfresh_data["fold"] != 10] 
-
-test_raw_data = raw_data[raw_data["fold"] == 10] # handout and never used in the training
-train_raw_data = raw_data[raw_data["fold"] != 10] 
-
-train_raw_data.shape, test_raw_data.shape, train_tsfresh_data.shape, test_tsfresh_data.shape
-# -
-
-
-print("Total number of users: %d" % tsfresh_data["pid"].unique().shape[0])
-print("In the training set: %d" % train_tsfresh_data["pid"].unique().shape[0])
-print("In the test set: %d" %  test_tsfresh_data["pid"].unique().shape[0])
-
-# +
-# To remove Json Error from pycarot's setup function
-tsfresh_data = tsfresh_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-train_tsfresh_data = train_tsfresh_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-test_tsfresh_data = test_tsfresh_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-
-raw_data = raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-train_raw_data = train_raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-test_raw_data = test_raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-
-# +
-output_path = "../data/processed/train_test_splits/"
-
-if not os.path.exists(output_path):
-    os.mkdir(output_path)
-
-tsfresh_data.to_csv(os.path.join(output_path, "all_tsfresh_data.csv.gz"), index=False)
-train_tsfresh_data.to_csv(os.path.join(output_path, "train_tsfresh_data.csv.gz"), index=False)
-test_tsfresh_data.to_csv(os.path.join(output_path, "test_tsfresh_data.csv.gz"), index=False)
-
-raw_data.to_csv(os.path.join(output_path, "all_raw_data.csv.gz"), index=False)
-train_raw_data.to_csv(os.path.join(output_path, "train_raw_data.csv.gz"), index=False)
-test_raw_data.to_csv(os.path.join(output_path, "test_raw_data.csv.gz"), index=False)
