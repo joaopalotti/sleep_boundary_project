@@ -78,7 +78,6 @@ def generate_slide_wins(df_in, start_seq, winsize, delta,
         print("ERROR: We should have only one pid here. Aborting")
         return
     pid = pid[0]
-    print("PID=",pid)
     
     df = df_in.reset_index(drop=True).copy()
     
@@ -307,71 +306,72 @@ def convert_str_time(t):
 
 
 # +
-centered = True
-winsize_in_minutes = 10
 
-centered_str = "centered" if centered else "notcentered"
-winsize_str = convert_str_time(winsize_in_minutes)
-delta_str = convert_str_time(-winsize_in_minutes//2) if centered else "0h00t"
+for winsize_in_minutes in [10, 20, 40]:
+    for centered in [True, False]:
 
-train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
-feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
+    centered_str = "centered" if centered else "notcentered"
+    winsize_str = convert_str_time(winsize_in_minutes)
+    delta_str = convert_str_time(-winsize_in_minutes//2) if centered else "0h00t"
 
-if not os.path.exists(feature_extration_datapath):
-    os.mkdir(feature_extration_datapath)
+    train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
+    feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
 
-
-if not data_exists(feature_extration_datapath):
-    df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
-    df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
-    win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity", "mean_hr"],
-                                        winsize=winsize_str, 
-                                        delta=delta_str,
-                                        label_col="ground_truth_5min", pid_col="mesaid", 
-                                        time_col="hyp_time_col")
-    
-    transformed_df, df_labels, df_label_times, df_pids = win_result
-    save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
-
-else:
-    transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
+    if not os.path.exists(feature_extration_datapath):
+        os.mkdir(feature_extration_datapath)
 
 
-# Extract raw features
-raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
+    if not data_exists(feature_extration_datapath):
+        df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
+        df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
+        win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity", "mean_hr"],
+                                            winsize=winsize_str, 
+                                            delta=delta_str,
+                                            label_col="ground_truth_5min", pid_col="mesaid", 
+                                            time_col="hyp_time_col")
 
-feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
+        transformed_df, df_labels, df_label_times, df_pids = win_result
+        save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
 
-if not os.path.exists(feature_extracted):
-    print("Extracting features...")
-    extracted_features = tsfresh.extract_relevant_features(transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
-                                                           df_labels["ground_truth"],
-                                                           column_id="seq_id", column_sort="hyp_time_col",
-                                                           disable_progressbar=True,
-                                                           default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
-    extracted_features.to_csv(feature_extracted, index=False)
-    
-else:
-    print("Reading extracted features from file '%s'..." % (feature_extracted))
-    extracted_features = pd.read_csv(feature_extracted)
+    else:
+        transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
 
-    
-df_pid_fold = map_id_fold(df_pids, 11)  
-df_pid_fold = df_pids.merge(df_pid_fold) 
 
-df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
+    # Extract raw features
+    raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
 
-tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
+    feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
+
+    if not os.path.exists(feature_extracted):
+        print("Extracting features...")
+        extracted_features = tsfresh.extract_relevant_features(transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
+                                                               df_labels["ground_truth"],
+                                                               column_id="seq_id", column_sort="hyp_time_col",
+                                                               disable_progressbar=True,
+                                                               default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+        extracted_features.to_csv(feature_extracted, index=False)
+
+    else:
+        print("Reading extracted features from file '%s'..." % (feature_extracted))
+        extracted_features = pd.read_csv(feature_extracted)
+
+
+    df_pid_fold = map_id_fold(df_pids, 11)  
+    df_pid_fold = df_pids.merge(df_pid_fold) 
+
+    df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
+
+    tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
+                              df_label_times.reset_index(drop=True),
+                              df_labels.reset_index(drop=True),
+                              extracted_features.reset_index(drop=True), 
+                              df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
+
+    raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
                           df_label_times.reset_index(drop=True),
                           df_labels.reset_index(drop=True),
-                          extracted_features.reset_index(drop=True), 
-                          df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
+                          raw_features.reset_index(drop=True)], axis=1)
 
-raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
-                      df_label_times.reset_index(drop=True),
-                      df_labels.reset_index(drop=True),
-                      raw_features.reset_index(drop=True)], axis=1)
-
-save_train_test_splits(train_test_output_path, tsfresh_data, "tsfresh")
-save_train_test_splits(train_test_output_path, raw_data, "raw")
+    save_train_test_splits(train_test_output_path, tsfresh_data, "tsfresh")
+    save_train_test_splits(train_test_output_path, raw_data, "raw")
 
