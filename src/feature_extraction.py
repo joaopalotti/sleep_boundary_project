@@ -5,7 +5,7 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.7.1
+#       jupytext_version: 1.11.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -210,9 +210,19 @@ def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
     return pivoted_df
 
 
+# +
 # define a setting for feature Extraction: {Minimal+Fourieh}
+
+# tsfresh.feature_extraction.feature_calculators.cwt_coefficients(x, param)
+# tsfresh.feature_extraction.feature_calculators.number_cwt_peaks(x, n)
+
+# tsfresh.feature_extraction.feature_calculators.agg_autocorrelation(x, param)
+
 ext_settings = {
-     "activity": {"sum_values": None,
+     "activity": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
+                                 width in [(2, 5, 10)] for coeff in range(15) for w in (2, 5, 10)],
+                  "number_cwt_peaks": [{"n": n} for n in [1, 4]],
+                  "sum_values": None,
                   "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
                   "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
                   "root_mean_square": None,
@@ -224,7 +234,10 @@ ext_settings = {
                   "fourier_entropy": [{"bins": x} for x in [2, 3, 5, 10, 100]],
                  },
 
-     "mean_hr": {"sum_values": None,
+     "mean_hr": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
+                                 width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
+                 "number_cwt_peaks": [{"n": n} for n in [1, 5]],
+                  "sum_values": None,
                   "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
                   "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
                   "root_mean_square": None,
@@ -238,7 +251,8 @@ ext_settings = {
 }
 
 
-# +
+# -
+
 # Convert time to sin_time, cos_time
 def convert_time_sin_cos(df, datetime_col):
 
@@ -259,8 +273,6 @@ def convert_time_sin_cos(df, datetime_col):
     day_cos.name = "time_cos"
     return day_sin, day_cos
 
-
-# -
 
 def map_id_fold(all_ids, n): 
     pids = all_ids["pid"].unique().ravel()
@@ -374,4 +386,9 @@ for winsize_in_minutes in [10, 20, 40]:
 
         save_train_test_splits(train_test_output_path, tsfresh_data, "tsfresh")
         save_train_test_splits(train_test_output_path, raw_data, "raw")
+
+# -
+
+
+
 
