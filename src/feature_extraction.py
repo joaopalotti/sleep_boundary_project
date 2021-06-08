@@ -190,7 +190,9 @@ def load_data(datafolder):
     df_labels = pd.read_csv("../data/feature_extraction/df_labels.csv.gz", squeeze=True)
     df_label_times = pd.read_csv("../data/feature_extraction/df_label_times.csv.gz")
     df_pids = pd.read_csv("../data/feature_extraction/df_pids.csv.gz")
+
     return transformed_df, df_labels, df_label_times, df_pids
+
 
 
 # -
@@ -209,19 +211,18 @@ def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
     
     return pivoted_df
 
-
 # +
-# define a setting for feature Extraction: {Minimal+Fourieh}
+# define a setting for feature Extraction: {Minimal+Fourieh+Wavelet}
 
 # tsfresh.feature_extraction.feature_calculators.cwt_coefficients(x, param)
 # tsfresh.feature_extraction.feature_calculators.number_cwt_peaks(x, n)
 
-# tsfresh.feature_extraction.feature_calculators.agg_autocorrelation(x, param)
+
 
 ext_settings = {
      "activity": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
-                                 width in [(2, 5, 10)] for coeff in range(15) for w in (2, 5, 10)],
-                  "number_cwt_peaks": [{"n": n} for n in [1, 4]],
+                                 width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
+                  "number_cwt_peaks": [{"n": n} for n in [1, 5]],
                   "sum_values": None,
                   "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
                   "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
@@ -285,7 +286,6 @@ def map_id_fold(all_ids, n):
     return pd.DataFrame(mapping)
 
 
-
 # +
 def save_train_test_splits(output_path, data, label):
     
@@ -325,16 +325,23 @@ for winsize_in_minutes in [10, 20, 40]:
         centered_str = "centered" if centered else "notcentered"
         winsize_str = convert_str_time(winsize_in_minutes)
         delta_str = convert_str_time(-winsize_in_minutes//2) if centered else "0h00t"
-
+        
         train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
+#         train_test_output_path = "../data/Temporary_output-feature-extraction" 
+    
+        
         feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
-
+#         feature_extration_datapath = '/Users/fatemeh/Sleep Project/4_Sleep Boundary/sleep_boundary_project/data/feature_extraction_10m_centered'
+        
         if not os.path.exists(feature_extration_datapath):
             os.mkdir(feature_extration_datapath)
 
 
         if not data_exists(feature_extration_datapath):
             df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
+            # raw data
+#             df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/part_of_data/*.csv.gz")
+        
             df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
             win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity", "mean_hr"],
                                                 winsize=winsize_str, 
@@ -343,6 +350,29 @@ for winsize_in_minutes in [10, 20, 40]:
                                                 time_col="hyp_time_col")
 
             transformed_df, df_labels, df_label_times, df_pids = win_result
+            
+            # IN oRDER To HAVE TWO LABELS(y, percentage)
+            #make a duplicate column
+            transformed_df['duplicate_ground_truth_5min'] = transformed_df['ground_truth_5min']
+            # change boolean to 0/1
+            transformed_df['duplicate_ground_truth_5min'] = transformed_df['ground_truth_5min'].astype(int)
+            temp = transformed_df.groupby(['seq_id'])['duplicate_ground_truth_5min'].sum()
+            #each minute consists of 2 epochs
+            window_size = (winsize_in_minutes+1)*2
+            percentages = []
+            for i in temp:
+                #calculate percentage
+                percentage = 100*i/window_size
+                percentages.append(percentage)
+                
+            # add percentage column to the dataframe  
+            index = 0
+            for i in transformed_df['seq_id']:
+                transformed_df['percentage_ground_truth_5min'][index] = percentages[i]
+                index =+ 1
+            
+            
+            
             save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
 
         else:
@@ -388,6 +418,8 @@ for winsize_in_minutes in [10, 20, 40]:
         save_train_test_splits(train_test_output_path, raw_data, "raw")
 
 # -
+
+
 
 
 
