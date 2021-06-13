@@ -214,9 +214,6 @@ def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
 # +
 # define a setting for feature Extraction: {Minimal+Fourieh+Wavelet}
 
-# tsfresh.feature_extraction.feature_calculators.cwt_coefficients(x, param)
-# tsfresh.feature_extraction.feature_calculators.number_cwt_peaks(x, n)
-
 
 
 ext_settings = {
@@ -352,24 +349,32 @@ for winsize_in_minutes in [10, 20, 40]:
             transformed_df, df_labels, df_label_times, df_pids = win_result
             
             # IN oRDER To HAVE TWO LABELS(y, percentage)
-            #make a duplicate column
-            transformed_df['duplicate_ground_truth_5min'] = transformed_df['ground_truth_5min']
-            # change boolean to 0/1
-            transformed_df['duplicate_ground_truth_5min'] = transformed_df['ground_truth_5min'].astype(int)
-            temp = transformed_df.groupby(['seq_id'])['duplicate_ground_truth_5min'].sum()
-            #each minute consists of 2 epochs
-            window_size = (winsize_in_minutes+1)*2
-            percentages = []
-            for i in temp:
-                #calculate percentage
-                percentage = 100*i/window_size
-                percentages.append(percentage)
-                
-            # add percentage column to the dataframe  
-            index = 0
-            for i in transformed_df['seq_id']:
-                transformed_df['percentage_ground_truth_5min'][index] = percentages[i]
-                index =+ 1
+#             #make a duplicate column
+#             transformed_df['duplicate_ground_truth_5min'] = transformed_df['ground_truth_5min']
+#             # change boolean to 0/1
+#             transformed_df['duplicate_ground_truth_5min'] = transformed_df['ground_truth_5min'].astype(int)
+#             temp = transformed_df.groupby(['seq_id'])['duplicate_ground_truth_5min'].sum()
+#             #each minute consists of 2 epochs
+#             window_size = (winsize_in_minutes+1)*2
+#             percentages = []
+#             for i in temp:
+#                 #calculate percentage
+#                 percentage = 100*i/window_size
+#                 percentages.append(percentage)
+             
+            
+            
+            
+#             # add percentage column to the dataframe  
+#             index = 0
+#             for i in transformed_df['seq_id']:
+#                 transformed_df['percentage_ground_truth_5min'][index] = percentages[i]
+#                 index =+ 1
+            
+            
+            transformed_df["percentage_ground_truth_5min"] = transformed_df.groupby("seq_id")["ground_truth_5min"].transform(lambda x: 100. * x.sum() / x.count())
+            
+            
             
             
             
