@@ -232,6 +232,7 @@ class LSTMLayer(pl.LightningModule):
                             batch_first=True, bidirectional=bidirectional)
         self.linlayers = nn.ModuleList()
         self.drop = nn.Dropout(dropout_lin)
+        self.hidden_dim = hidden_dim
         
         if bidirectional:
             hidden_dim *= 2
@@ -249,9 +250,13 @@ class LSTMLayer(pl.LightningModule):
             
         # define hidden state and cell state
         
+        if bidirectional:
 #         self.h0 = torch.rand(num_layers, num_layers*hidden_dim, hidden_dim)
-        self.h0 = torch.zeros(num_layers, num_layers*hidden_dim, hidden_dim)
-        self.c0 = torch.zeros(num_layers, num_layers*hidden_dim, hidden_dim)
+            self.h0 = torch.zeros(num_layers*2, hidden_dim, self.hidden_dim)
+            self.c0 = torch.zeros(num_layers*2, hidden_dim, self.hidden_dim)
+        else:
+            self.h0 = torch.zeros(num_layers, num_layers*hidden_dim, hidden_dim)
+            self.c0 = torch.zeros(num_layers, num_layers*hidden_dim, hidden_dim)
 
 
         print("Very Last: %d, Out: %d" % (last_d, output_dim))
@@ -516,77 +521,79 @@ pred = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred)).detach()
 
 pred.to_csv("/Users/fatemeh/Sleep Project/4_Sleep Boundary/sleep_boundary_project/data/files/part of raw data/predictions_nn.csv.gz", index=False)
 
+# -
 
-# +
-# def eval_n_times(config, datafolder, n, gpus=1, patience=3):
-    
-#     monitor = config["monitor"] # What to monitor? MCC/F1 or loss?
-    
-#     # High level network configs
-#     batch_size = config["batch_size"]
-    
-#     # Lower level details
-#     bidirectional = config["bidirectional"]
-#     hidden_dim = config["hidden_dim"]
-#     lstm_layers = config["lstm_layers"]
-#     dropout_lstm = config["dropout_lstm"]
-#     dropout_lin = config["dropout_lin"]
-#     lstm_output_dim = config["lstm_output_dim"]
-    
-#     # Optmizer
-#     learning_rate = config["learning_rate"]
-#     opt_step_size = config["opt_step_size"]
-#     weight_decay = config["weight_decay"]
-    
-#     X, Y = load_data(datafolder)
-    
-#     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
-#     val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
-#     test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
-    
-#     results = []
-#     for s in range(n):
-#         seed.seed_everything(s)
 
-# #         path_ckps = "./lightning_logs/test/"
+def eval_n_times(config, datafolder, n, gpus=1, patience=3):
+    
+    monitor = config["monitor"] # What to monitor? MCC/F1 or loss?
+    
+    # High level network configs
+    batch_size = config["batch_size"]
+    
+    # Lower level details
+    bidirectional = config["bidirectional"]
+    hidden_dim = config["hidden_dim"]
+    lstm_layers = config["lstm_layers"]
+    dropout_lstm = config["dropout_lstm"]
+    dropout_lin = config["dropout_lin"]
+    lstm_output_dim = config["lstm_output_dim"]
+    
+    # Optmizer
+    learning_rate = config["learning_rate"]
+    opt_step_size = config["opt_step_size"]
+    weight_decay = config["weight_decay"]
+    
+    X, Y = load_data(datafolder)
+    
+    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+    val   = DataLoader(myXYDataset(X["val"],   Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+    test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True, num_workers=8)
+    
+    results = []
+    for s in range(n):
+        seed.seed_everything(s)
+
+        path_ckps = "./lightning_logs/test/"
 #         path_ckps = "./TEST_logs/lightning_logs/test/"
     
-#         if monitor == "mcc":
-#             early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='mcc', mode='max', patience=patience)
-#             ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
-#                                   monitor="mcc", mode="max")
-#         else:
-#             early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=patience)
-#             ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
-#                                   monitor="loss", mode="min")
+        if monitor == "mcc":
+            early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='mcc', mode='max', patience=patience)
+            ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
+                                  monitor="mcc", mode="max")
+        else:
+            early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=patience)
+            ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False, prefix="",
+                                  monitor="loss", mode="min")
                                                                                         
-#         hparams = Namespace(batch_size=batch_size,
-#                             #
-#                             # Optmizer configs
-#                             #
-#                             opt_learning_rate=learning_rate,
-#                             opt_weight_decay=weight_decay,
-#                             opt_step_size=opt_step_size,
-#                             opt_gamma=0.5,
-#                             # LSTM configs
-#                             hidden_dim=hidden_dim,
-#                             bidirectional=bidirectional,
-#                             lstm_layers=lstm_layers,
-#                             lstm_output_dim=lstm_output_dim,
-#                             dropout_lstm=dropout_lstm,
-#                             dropout_lin=dropout_lin,
-#                            )
+        hparams = Namespace(batch_size=batch_size,
+                            #
+                            # Optmizer configs
+                            #
+                            opt_learning_rate=learning_rate,
+                            opt_weight_decay=weight_decay,
+                            opt_step_size=opt_step_size,
+                            opt_gamma=0.5,
+                            # LSTM configs
+                            hidden_dim=hidden_dim,
+                            bidirectional=bidirectional,
+                            lstm_layers=lstm_layers,
+                            lstm_output_dim=lstm_output_dim,
+                            dropout_lstm=dropout_lstm,
+                            dropout_lin=dropout_lin,
+                           )
 
-#         model = MyNet(hparams)
-#         model.double()
+        model = MyNet(hparams)
+        model.double()
 
-#         trainer = Trainer(gpus=gpus, min_epochs=2, max_epochs=100, deterministic=True,
-#                           callbacks=[early_stop_callback, ckp])
-#         trainer.fit(model, train, val)
-#         res = trainer.test(test_dataloaders=test)
-#         results.append(res[0])
+        trainer = Trainer(gpus=gpus, min_epochs=2, max_epochs=100, deterministic=True,
+                          callbacks=[early_stop_callback, ckp])
+        trainer.fit(model, train, val)
+        res = trainer.test(test_dataloaders=test)
+        results.append(res[0])
         
-#     return pd.DataFrame(results)
+    return pd.DataFrame(results)
+
 
 # +
 def hyper_tuner(config, datafolder):
