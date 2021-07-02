@@ -371,20 +371,13 @@ class MyNet(pl.LightningModule):
         loss = {}
         final_loss = 0
         for key in keys:
-            print("key is", key)
             if(key != 'main_y'):
                 predictions[key]  = range_normalization(predictions[key])
                 label[key]  = range_normalization(label[key])
-            print("predictions[key]\n", predictions[key])
-            print("label[key]\n", label[key])
+                
             loss[key] = loss_fnct(predictions[key], label[key])
-            
-            print("loss is ", loss[key])
             final_loss +=  weights[key] * loss[key] 
-            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
-        
-        #for future call a function here to check if the Ys are in range of (0,1)
-        print("final loss", final_loss)
+
         return final_loss
     
     def process_step(self, batch):        
