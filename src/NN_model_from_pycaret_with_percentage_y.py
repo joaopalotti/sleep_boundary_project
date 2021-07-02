@@ -491,19 +491,11 @@ datafolder = "../data/processed/train_test_splits/20min_centered"
 
 if data_exists(datafolder):
     X, Y, test_pids = load_data(datafolder)
-    print("in if")
 else:
 #     X, Y, test_pids = extract_features("train_data.csv.gz", "test_data.csv.gz", use_gpu=True)
     X, Y, test_pids = extract_features("../data/processed/train_test_splits/20min_centered/train_raw_data.csv.gz", "../data/processed/train_test_splits/20min_centered/test_raw_data.csv.gz", use_gpu=True)
     save_data(datafolder, X, Y, test_pids)
-    print("in else")
 
-
-# +
-# X["train"]
-
-# +
-# Y["train"]
 
 # +
 # batch_size = 1024
