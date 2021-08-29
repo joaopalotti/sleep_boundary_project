@@ -188,7 +188,9 @@ def calculate_classification_metrics(labels, predictions):
             metrics.matthews_corrcoef(labels, predictions)
 
 def calculate_regression_metrics(labels, predictions):
-
+    ## sequence_check
+    print("*** regresseion metrics function ***")
+    print("first return of regression_metric_function", metrics.mean_absolute_error(labels, predictions))
     return metrics.mean_absolute_error(labels, predictions),\
             metrics.mean_squared_error(labels, predictions),\
             metrics.r2_score(labels, predictions)
@@ -273,18 +275,35 @@ class LSTMLayer(pl.LightningModule):
         x = self.last_lin(x)
         return x
 
-# -
 
+
+# +
+# def range_normalization(tensor):
+#         print("tensor before range normalization\n", tensor)
+#         tensor = tensor.view(tensor.size(0))
+#         tensor -= tensor.min()
+#         tensor /= tensor.max()
+#         tensor = tensor.view(-1,1)
+#         print("tensor after range normalization\n", tensor)
+#         ## sequence_check
+#         print("*** Mynet_ range normalization***")
+#         return tensor
 
 def range_normalization(tensor):
+    
+    if ~torch.isnan(tensor.min()):
+        tensor[tensor==100.0] = 1.0
+        
+    else:
         tensor = tensor.view(tensor.size(0))
         tensor -= tensor.min()
         tensor /= tensor.max()
         tensor = tensor.view(-1,1)
-        ## sequence_check
-        print("*** Mynet_ range normalization***")
-        return tensor
+        
+    return tensor
 
+
+# -
 
 class MyNet(pl.LightningModule):
 
@@ -331,6 +350,7 @@ class MyNet(pl.LightningModule):
             'main_y': nn.Sequential(OrderedDict([
             ('lin1', nn.Linear(self.lstm_output_dim, 4)),
             ('act1', nn.ReLU(inplace=True)),
+#             ('act1', nn.ReLU(inplace=False)),
             ('dropout', nn.Dropout(self.dropout_lin)),
             ('lin2', nn.Linear(4, 1))
         ])),
@@ -338,6 +358,7 @@ class MyNet(pl.LightningModule):
             'percentage_y': nn.Sequential(OrderedDict([
             ('lin1', nn.Linear(self.lstm_output_dim, 4)),
             ('act1', nn.ReLU(inplace=True)),
+#             ('act1', nn.ReLU(inplace=False)),
             ('dropout', nn.Dropout(self.dropout_lin)),
             ('lin2', nn.Linear(4, 1))
         ])),
@@ -375,7 +396,7 @@ class MyNet(pl.LightningModule):
         label = {}
         label['main_y'] = y[0: , 0:-1]
         label['percentage_y'] = y[0: , 1:]
-
+        
         weights = {}
         weights['main_y'] = 0.75
         weights['percentage_y'] = 0.25
@@ -383,6 +404,7 @@ class MyNet(pl.LightningModule):
         keys = ['main_y', 'percentage_y']
         loss = {}
         final_loss = 0
+        
         for key in keys:
             if(key != 'main_y'):
                 predictions[key]  = range_normalization(predictions[key])
@@ -470,24 +492,26 @@ class MyNet(pl.LightningModule):
         print("(Val_main_y) Epoch: %d, Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (self.current_epoch,
                                                                                      acc_main_y, prec_main_y, rec_main_y, f1_main_y, mcc_main_y))
 
-
-
+        
         MAE_y, MSE_y, r2_y  = calculate_regression_metrics(y['percentage_y'], pred['percentage_y'])
-
+        
+        
         self.log("MAE_y", MAE_y)
         self.log("MSE_y", MSE_y)
         self.log("MSE_y", r2_y)
+        
+        ## sequence_check
+        print("*** Mynet_validation_epoch_end***")
 
         print("(Val_percentage_y) Epoch: %d, MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (self.current_epoch,
                                                                                      MAE_y, MSE_y, r2_y))
-        ## sequence_check
-        print("*** Mynet_validation epoch end***")
+        
         
     def test_epoch_end(self, outputs):
         test_loss = torch.stack([row['loss'] for row in outputs]).mean()
         print("(Test) Total Loss: %.4f" % test_loss)
         ## sequence_check
-        print("*** Mynet_test epoch end1***")
+        print("*** Mynet_test epoch end3***")
         y = {}
         y['main_y'] = torch.stack([row["y"][0: , 0:-1] for row in outputs]).view(-1).cpu()
         y['percentage_y'] = torch.stack([row["y"][0: , 1:] for row in outputs]).view(-1).cpu()
@@ -511,7 +535,7 @@ class MyNet(pl.LightningModule):
         print("TEST: Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (acc_main_y, prec_main_y, rec_main_y, f1_main_y, mcc_main_y))
 
         ## sequence_check
-        print("*** Mynet_test epoch end2***")
+        print("*** Mynet_test epoch end4***")
         MAE_y, MSE_y, r2_y  = calculate_regression_metrics(y['percentage_y'], pred['percentage_y'])
 
         self.log("MAE_y", MAE_y)
@@ -521,7 +545,7 @@ class MyNet(pl.LightningModule):
         print("(TEST: MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (MAE_y, MSE_y, r2_y))
         
         ## sequence_check
-        print("*** Mynet_test epoch end3***")
+        print("*** Mynet_test epoch end5***")
 # ### The next two cells are able to run the network one single time. 
 # It is useful for us to debug the network before running the param tuning
 
@@ -542,10 +566,10 @@ else:
 #     X, Y, test_pids = extract_features("train_data.csv.gz", "test_data.csv.gz", use_gpu=True)
     X, Y, test_pids = extract_features("../data/processed/train_test_splits/20min_centered/train_raw_data.csv.gz", "../data/processed/train_test_splits/20min_centered/test_raw_data.csv.gz", use_gpu=True)
     save_data(datafolder, X, Y, test_pids)
-# -
 
 
-X["train"]
+# +
+# X["train"]
 
 # +
 # batch_size = 1024
