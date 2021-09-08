@@ -13,7 +13,6 @@
 # ---
 
 # +
-import tempfile
 import pandas as pd
 pd.set_option('display.max_rows', 20)
 
@@ -21,10 +20,6 @@ import numpy as np
 import os
 from tqdm import tqdm
 from glob import glob
-from datetime import timedelta
-from tsfresh import select_features, extract_features
-from tsfresh.utilities.dataframe_functions import impute
-from tsfresh.feature_extraction import MinimalFCParameters, ComprehensiveFCParameters
 import itertools
 
 import tsfresh
@@ -40,6 +35,7 @@ def read_file(filename):
     df["sleep"] = df["stages"] > 0
     df["linetime"] = pd.to_datetime(df["linetime"])
     return df
+
 
 def read_all_files(path):
     input_files = glob(path)
@@ -84,10 +80,10 @@ def generate_slide_wins(df_in, start_seq, winsize, delta,
     if not is_datetime64_ns_dtype(df[time_col]):
         df[time_col] = pd.to_datetime(df[time_col])
 
-
     # The following code will construct a rolling win that could be based on either time or #win
     # This will feed list_of_indexes with the sub-win indices that will be used in the next for loop
-    df.reset_index().rolling(winsize, on=time_col, center=False, closed="both")["index"].apply((lambda x: list_of_indices.append(x.tolist()) or 0))
+    df.reset_index().rolling(winsize, on=time_col, center=False, closed="both")["index"].apply(
+        (lambda x: list_of_indices.append(x.tolist()) or 0))
 
     # Time-based win might be smaller than the expected size.
     expected_size = (winsize // pd.Timedelta(dataset_freq)) + 1
@@ -107,9 +103,9 @@ def generate_slide_wins(df_in, start_seq, winsize, delta,
 
         # Sleep/wake label
         label = dftime.loc[label_time][label_col]
-        
+
         # calculates the percentage of sleep in win
-        percentage_sleep = df.loc[idx][[label_col]].astype(float).apply(lambda x: 100. * x.sum()/ x.count()).iloc[0]
+        percentage_sleep = df.loc[idx][[label_col]].astype(float).apply(lambda x: 100. * x.sum() / x.count()).iloc[0]
 
         # save instance
         df_labels.append({"ground_truth": label, "percentage_ground_truth": percentage_sleep})
@@ -136,7 +132,6 @@ def generate_slide_wins(df_in, start_seq, winsize, delta,
 
 
 def generate_timeseries_df(df, signals, winsize, delta, label_col, time_col, pid_col):
-
     df_labels = []
     df_label_times = []
     df_timeseries = []
@@ -182,11 +177,13 @@ def data_exists(datafolder):
 
     return True
 
+
 def save_data(output_folder, transformed_df, df_labels, label_times, pids):
     transformed_df.to_csv(os.path.join(output_folder, "transformed_df.csv.gz"), index=False)
     df_labels.to_csv(os.path.join(output_folder, "df_labels.csv.gz"), index=False)
     df_label_times.to_csv(os.path.join(output_folder, "df_label_times.csv.gz"), index=False)
     df_pids.to_csv(os.path.join(output_folder, "df_pids.csv.gz"), index=False)
+
 
 def load_data(datafolder):
     transformed_df = pd.read_csv(os.path.join(datafolder, "transformed_df.csv.gz"))
@@ -194,7 +191,6 @@ def load_data(datafolder):
     df_label_times = pd.read_csv(os.path.join(datafolder, "df_label_times.csv.gz"))
     df_pids = pd.read_csv(os.path.join(datafolder, "df_pids.csv.gz"))
     return transformed_df, df_labels, df_label_times, df_pids
-
 
 
 # -
@@ -221,23 +217,8 @@ def get_raw_features(df, raw_cols, seq_id_col="seq_id"):
 # tsfresh.feature_extraction.feature_calculators.number_cwt_peaks(x, n)
 
 ext_settings = {
-     "activity": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
-                                 width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
-                  "number_cwt_peaks": [{"n": n} for n in [1, 5]],
-                  "sum_values": None,
-                  "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
-                  "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
-                  "root_mean_square": None,
-                  "maximum": None,
-                  "minimum": None,
-                  "fft_aggregated": [{"aggtype": s} for s in ["centroid", "variance", "skew", "kurtosis"]],
-                  "fft_coefficient": [{"coeff": k, "attr": a} for a, k in
-                        itertools.product(["real", "imag", "abs", "angle"], range(10))],
-                  "fourier_entropy": [{"bins": x} for x in [2, 3, 5, 10, 100]],
-                 },
-
-     "mean_hr": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
-                                 width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
+    "activity": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
+                                      width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
                  "number_cwt_peaks": [{"n": n} for n in [1, 5]],
                  "sum_values": None,
                  "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
@@ -247,23 +228,37 @@ ext_settings = {
                  "minimum": None,
                  "fft_aggregated": [{"aggtype": s} for s in ["centroid", "variance", "skew", "kurtosis"]],
                  "fft_coefficient": [{"coeff": k, "attr": a} for a, k in
-                        itertools.product(["real", "imag", "abs", "angle"], range(10))],
+                                     itertools.product(["real", "imag", "abs", "angle"], range(10))],
                  "fourier_entropy": [{"bins": x} for x in [2, 3, 5, 10, 100]],
+                 },
+
+    "mean_hr": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
+                                     width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
+                "number_cwt_peaks": [{"n": n} for n in [1, 5]],
+                "sum_values": None,
+                "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
+                "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
+                "root_mean_square": None,
+                "maximum": None,
+                "minimum": None,
+                "fft_aggregated": [{"aggtype": s} for s in ["centroid", "variance", "skew", "kurtosis"]],
+                "fft_coefficient": [{"coeff": k, "attr": a} for a, k in
+                                    itertools.product(["real", "imag", "abs", "angle"], range(10))],
+                "fourier_entropy": [{"bins": x} for x in [2, 3, 5, 10, 100]],
                 }
 }
 
 
 # Convert time to sin_time, cos_time
 def convert_time_sin_cos(df, datetime_col):
-
     if datetime_col not in df:
-        print("ERROR datetime_col %s not in df!" % (datetime_col))
+        print("ERROR datetime_col %s not in df!" % datetime_col)
         return
 
     if not is_datetime64_ns_dtype(df[datetime_col]):
         df[datetime_col] = pd.to_datetime(df[datetime_col])
 
-    day = 24*60*60
+    day = 24 * 60 * 60
 
     ts = df[datetime_col].apply(lambda x: x.timestamp()).astype(int)
     day_sin = np.sin(ts * (2 * np.pi / day))
@@ -287,64 +282,62 @@ def map_id_fold(all_ids, n):
 
 # +
 def save_train_test_splits(output_path, data, label):
-
-    test_data = data[data["fold"] == 10] # handout and never used in the training
+    test_data = data[data["fold"] == 10]  # handout and never used in the training
     train_data = data[data["fold"] != 10]
 
     print("Total number of users: %d" % data["pid"].unique().shape[0])
     print("In the training set: %d" % train_data["pid"].unique().shape[0])
-    print("In the test set: %d" %  test_data["pid"].unique().shape[0])
+    print("In the test set: %d" % test_data["pid"].unique().shape[0])
 
     # To remove Json Error from pycarot's setup function
-    data = raw_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-    train_data = train_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
-    test_data = test_data.rename(columns = lambda x:re.sub('[^A-Za-z0-9_]+', '', x))
+    data = data.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
+    train_data = train_data.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
+    test_data = test_data.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
 
     if not os.path.exists(output_path):
         os.mkdir(output_path)
 
-    data.to_csv(os.path.join(output_path, "all_%s_data.csv.gz" % (label)), index=False)
-    train_data.to_csv(os.path.join(output_path, "train_%s_data.csv.gz" % (label)), index=False)
-    test_data.to_csv(os.path.join(output_path, "test_%s_data.csv.gz" % (label)), index=False)
+    data.to_csv(os.path.join(output_path, "all_%s_data.csv.gz" % label), index=False)
+    train_data.to_csv(os.path.join(output_path, "train_%s_data.csv.gz" % label), index=False)
+    test_data.to_csv(os.path.join(output_path, "test_%s_data.csv.gz" % label), index=False)
 
 
 def convert_str_time(t):
     if t < 0:
-        return "-" + convert_str_time(-1*t)
+        return "-" + convert_str_time(-1 * t)
     h = t // 60
     m = t % 60
-    return "%dh%01dt" % (h,m)
+    return "%dh%01dt" % (h, m)
 
 
 # + endofcell="--"
-for winsize_in_minutes in [10]: # [10, 20, 40]:
-    for centered in [True]: # [True, False]:
+for winsize_in_minutes in [10, 20, 40]:
+    for centered in [True, False]:
 
         centered_str = "centered" if centered else "notcentered"
         winsize_str = convert_str_time(winsize_in_minutes)
-        delta_str = convert_str_time(-winsize_in_minutes//2) if centered else "0h00t"
-        
+        delta_str = convert_str_time(-winsize_in_minutes // 2) if centered else "0h00t"
+
         train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
-#         train_test_output_path = "../data/Temporary_output-feature-extraction" 
-    
-        
+        #         train_test_output_path = "../data/Temporary_output-feature-extraction"
+
         feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
-#         feature_extration_datapath = '/Users/fatemeh/Sleep Project/4_Sleep Boundary/sleep_boundary_project/data/feature_extraction_10m_centered'
-        
+        #         feature_extration_datapath = '/Users/fatemeh/Sleep Project/4_Sleep Boundary/sleep_boundary_project/data/feature_extraction_10m_centered'
+
         if not os.path.exists(feature_extration_datapath):
             os.mkdir(feature_extration_datapath)
 
-
-        if not not data_exists(feature_extration_datapath):
-#            df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
+        if not data_exists(feature_extration_datapath):
+            df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
             # raw data
-            df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/part_of_data/*.csv.gz")
-        
+            # df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/part_of_data/*.csv.gz")
+
             df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
-            win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity", "mean_hr"],
-                                                winsize=winsize_str, 
+            win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity",
+                                                             "mean_hr"],
+                                                winsize=winsize_str,
                                                 delta=delta_str,
-                                                label_col="ground_truth_5min", pid_col="mesaid", 
+                                                label_col="ground_truth_5min", pid_col="mesaid",
                                                 time_col="hyp_time_col")
 
             transformed_df, df_labels, df_label_times, df_pids = win_result
@@ -353,7 +346,6 @@ for winsize_in_minutes in [10]: # [10, 20, 40]:
         else:
             transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
 
-
         # Extract raw features
         raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
 
@@ -361,28 +353,28 @@ for winsize_in_minutes in [10]: # [10, 20, 40]:
 
         if not os.path.exists(feature_extracted):
             print("Extracting features...")
-            extracted_features = tsfresh.extract_relevant_features(transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
-                                                                   df_labels["ground_truth"],
-                                                                   column_id="seq_id", column_sort="hyp_time_col",
-                                                                   disable_progressbar=True,
-                                                                   default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+            extracted_features = tsfresh.extract_relevant_features(
+                transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
+                df_labels["ground_truth"],
+                column_id="seq_id", column_sort="hyp_time_col",
+                disable_progressbar=True,
+                default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
             extracted_features.to_csv(feature_extracted, index=False)
 
         else:
-            print("Reading extracted features from file '%s'..." % (feature_extracted))
+            print("Reading extracted features from file '%s'..." % feature_extracted)
             extracted_features = pd.read_csv(feature_extracted)
-        
-        # stopping here
 
-        df_pid_fold = map_id_fold(df_pids, 11)  
-        df_pid_fold = df_pids.merge(df_pid_fold) 
+        # stopping here
+        df_pid_fold = map_id_fold(df_pids, 11)
+        df_pid_fold = df_pids.merge(df_pid_fold)
 
         df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
 
         tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
                                   df_label_times.reset_index(drop=True),
                                   df_labels.reset_index(drop=True),
-                                  extracted_features.reset_index(drop=True), 
+                                  extracted_features.reset_index(drop=True),
                                   df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
 
         raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
@@ -395,5 +387,3 @@ for winsize_in_minutes in [10]: # [10, 20, 40]:
 
 # -
 # --
-
-
