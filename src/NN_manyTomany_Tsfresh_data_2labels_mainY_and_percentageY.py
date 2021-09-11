@@ -278,7 +278,6 @@ class LSTMLayer(pl.LightningModule):
         
     def forward(self, x):
 #         print("type x", type(x))
-        print("INPUT x.shape[0] is:", x.shape[0])
 #         print("BP:", self.break_point)
 
 #         print("second dim:", x.shape[1]//self.break_point)
@@ -287,8 +286,8 @@ class LSTMLayer(pl.LightningModule):
 #         print("after using viw with x size 0", x.size(0))
         
 
-        hn = torch.rand(self.num_layers, x.shape[0], self.output_dim)
-        cn = torch.zeros(self.num_layers, x.shape[0], self.output_dim)
+#         hn = torch.rand(self.num_layers, x.shape[0], self.output_dim)
+#         cn = torch.zeros(self.num_layers, x.shape[0], self.output_dim)
         
         # xavier for initializing h0
         nn.init.xavier_normal_(self.h0)
@@ -296,23 +295,23 @@ class LSTMLayer(pl.LightningModule):
         # TO GET RID OF AN ERROR, CONVERT IT TO DOUBEL
         self.h0 = self.h0.double()
         self.c0 = self.c0.double()
-        print("self.h0 size",self.h0.size())
+#         print("self.h0 size",self.h0.size())
         
 #         print("hidden[0]\n", hidden)
         x, (hn, cn) = self.lstm(x, (self.h0, self.c0))
-        print("self.hn size",hn.size())
+#         print("self.hn size",hn.size())
         
         x = x.reshape(x.shape[0], -1)
         x = self.last_lin(x)
 
         return x
     
+
+# +
+
+# test = torch.rand(3, 6, 4)
+# test.size()
 # -
-
-# hn chi hast
-test = torch.rand(3, 6, 4)
-test.size()
-
 
 class MyNet(pl.LightningModule):
 
@@ -515,7 +514,7 @@ class MyNet(pl.LightningModule):
         self.log("MSE_y", r2_y)
         
         print("(TEST: MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (MAE_y, MSE_y, r2_y)) 
-        
+
 
 # ### The next two cells are able to run the network one single time. 
 # It is useful for us to debug the network before running the param tuning
@@ -549,7 +548,7 @@ else:
 # model
 # -
 
-X['train'].shape[0]
+X['train'].shape
 
 # +
 # batch_size = 1024
@@ -604,25 +603,22 @@ trainer.fit(model, train, val)
 res = trainer.test(test_dataloaders=test)
 
 # +
-model.eval()
-# pred = model(torch.tensor(X["test"].values.astype(np.float)))
-# pred = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred)).detach().view(-1))], axis=1)
+trainer.test()
 
-# pred.to_csv("/Users/fatemeh/Sleep Project/4_Sleep Boundary/sleep_boundary_project/data/files/part of raw data/predictions_nn.csv.gz", index=False)
+# model.eval()
 
+# pred = {}
+# # print("X['test']", X["test"])
+# pred['main_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['main_y']
+# print("pred['main_y']\n", pred['main_y'])
+# pred['percentage_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['percentage_y']
+# print("pred['percentage_y']\n", pred['percentage_y'])
 
-pred = {}
-# print("X['test']", X["test"])
-pred['main_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['main_y']
-print("pred['main_y']\n", pred['main_y'])
-pred['percentage_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['percentage_y']
-print("pred['percentage_y']\n", pred['percentage_y'])
+# pred['main_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['main_y'])).detach().view(-1))], axis=1)
+# pred['percentage_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['percentage_y'])).detach().view(-1))], axis=1)
 
-pred['main_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['main_y'])).detach().view(-1))], axis=1)
-pred['percentage_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['percentage_y'])).detach().view(-1))], axis=1)
-
-pred['main_y'].to_csv("predictions_Tsfresh_main_nn.csv.gz", index=False)
-pred['percentage_y'].to_csv("predictions_Tsfresh_percentage_nn.csv.gz", index=False)
+# pred['main_y'].to_csv("predictions_Tsfresh_main_nn.csv.gz", index=False)
+# pred['percentage_y'].to_csv("predictions_Tsfresh_percentage_nn.csv.gz", index=False)
 
 # -
 
