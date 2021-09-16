@@ -38,6 +38,9 @@ from torch.utils.data import Dataset, DataLoader
 import sys
 
 import pytorch_lightning as pl
+import wandb
+from pytorch_lightning.loggers import WandbLogger
+wandb.login()
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -372,6 +375,11 @@ class MyNet(pl.LightningModule):
         closs = classificationl_loss_fnct(predictions["main_y"], label["main_y"])
         rloss = regression_loss_fnct(predictions["percentage_y"], label["percentage_y"])
 
+        
+        self.log('mainY_loss', closs)
+        self.log('percentageY_loss', rloss)
+        
+        
         final_loss = 0.75 * closs + 0.25 * rloss
        
         return final_loss
@@ -567,11 +575,13 @@ test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, sh
 # path_ckps = "./lightning_logs/test/"
 path_ckps = "./TEST_logs/lightning_logs/test/"
 
+wandb_logger = WandbLogger(name='Wandb_4')
+
 early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
 ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False,
                       monitor="loss", mode="min")
 
-trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp])
+trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp], logger=wandb_logger)
 
 trainer.fit(model, train, val)
 res = trainer.test(test_dataloaders=test)
@@ -579,16 +589,24 @@ res = trainer.test(test_dataloaders=test)
 
 # +
 # # +
-model.eval()
-pred = {}
-pred['main_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['main_y']
-pred['percentage_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['percentage_y']
 
-pred['main_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['main_y'])).detach().view(-1))], axis=1)
-pred['percentage_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['percentage_y'])).detach().view(-1))], axis=1)
+trainer.test()
 
-pred['main_y'].to_csv("predictions_main_nn.csv.gz", index=False)
-pred['percentage_y'].to_csv("predictions_percentage_nn.csv.gz", index=False)
+"""
+#for now we replace model.eval with trainer.test
+"""
+
+# model.eval()
+# pred = {}
+# pred['main_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['main_y']
+# pred['percentage_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['percentage_y']
+
+# pred['main_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['main_y'])).detach().view(-1))], axis=1)
+# pred['percentage_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['percentage_y'])).detach().view(-1))], axis=1)
+
+# pred['main_y'].to_csv("predictions_main_nn.csv.gz", index=False)
+# pred['percentage_y'].to_csv("predictions_percentage_nn.csv.gz", index=False)
+
 
 
 # +
