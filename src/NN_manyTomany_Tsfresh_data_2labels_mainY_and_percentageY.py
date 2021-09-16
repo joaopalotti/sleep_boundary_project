@@ -17,6 +17,7 @@
 import pandas as pd
 pd.set_option('display.max_rows', 20)
 
+
 import numpy as np
 import os
 from tqdm import tqdm
@@ -37,6 +38,9 @@ from torch.utils.data import Dataset, DataLoader
 import sys
 
 import pytorch_lightning as pl
+import wandb
+from pytorch_lightning.loggers import WandbLogger
+wandb.login()
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -46,7 +50,7 @@ from pytorch_lightning.utilities import rank_zero_only, seed
 
 from ray.tune.integration.pytorch_lightning import TuneReportCallback
 from ray import tune
-    
+
 from collections import OrderedDict
 from datetime import datetime
 
@@ -305,7 +309,7 @@ class LSTMLayer(pl.LightningModule):
         x = self.last_lin(x)
 
         return x
-    
+
 
 # +
 
@@ -412,7 +416,10 @@ class MyNet(pl.LightningModule):
         
         closs = classificationl_loss_fnct(predictions["main_y"], label["main_y"])
         rloss = regression_loss_fnct(predictions["percentage_y"], label["percentage_y"])
-
+        
+        self.log('mainY_loss', closs)
+        self.log('percentageY_loss', rloss)
+        
         final_loss = 0.75 * closs + 0.25 * rloss
        
         return final_loss
@@ -591,11 +598,13 @@ test  = DataLoader(myXYDataset(X["test"],  Y["test"]), batch_size=batch_size, sh
 path_ckps = "./lightning_logs/test/"
 # path_ckps = "./TEST_logs/lightning_logs/test/"
 
+wandb_logger = WandbLogger(name='Wandb_mantTOmany_Tsfresh')
+
 early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
 ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False, 
                       prefix="", monitor="loss", mode="min")
 
-trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp])
+trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp], logger = wandb_logger)
 # trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=early_stop_callback)
 
 
