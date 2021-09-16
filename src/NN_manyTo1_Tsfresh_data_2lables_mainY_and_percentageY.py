@@ -38,6 +38,9 @@ from torch.utils.data import Dataset, DataLoader
 import sys
 
 import pytorch_lightning as pl
+import wandb
+from pytorch_lightning.loggers import WandbLogger
+wandb.login()
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -276,8 +279,7 @@ class LSTMLayer(pl.LightningModule):
         return x
 
 
-# -
-
+# +
 class MyNet(pl.LightningModule):
 
     def __init__(self, hparams):
@@ -285,6 +287,7 @@ class MyNet(pl.LightningModule):
 
         super().__init__()
 
+        #Log hyperparameters_ save everything at self.h param for losses and acc
         self.save_hyperparameters()
         # self.hparams = hparams
         self.timestamp = datetime.now()
@@ -337,8 +340,8 @@ class MyNet(pl.LightningModule):
                         ])),
         })
 
-        
-
+       #edit 
+#     i_for_loss = 0
     def forward(self, x):
         x = self.net(x)
         x = self.drop(x)
@@ -372,6 +375,18 @@ class MyNet(pl.LightningModule):
 
         closs = classificationl_loss_fnct(predictions["main_y"], label["main_y"])
         rloss = regression_loss_fnct(predictions["percentage_y"], label["percentage_y"])
+        
+#         # Initialize run
+#         wandb.init()
+
+#         # Log multiple metrics
+#         wandb.log("performance", {"dict_mainY_loss": closs, "dict_percentageY_loss": rloss})
+
+        # it seems that if we use wandb.logger we could define a dict, but now we could not
+#         self.log("performance", {"mainY_loss": closs, "percentageY_loss": rloss})
+
+        self.log('mainY_loss', closs)
+        self.log('percentageY_loss', rloss)
 
         final_loss = 0.75 * closs + 0.25 * rloss
        
@@ -388,6 +403,8 @@ class MyNet(pl.LightningModule):
 
         predictions = self(x)
         loss = self.calculate_losses(y, predictions)
+        
+        
         
         return predictions, y, loss
 
@@ -572,13 +589,16 @@ path_ckps = "./TEST_logs/lightning_logs/test/"
 
 # tb_logs is the name of the saving directory. 
 # this logging will have the name as my_model
-logger = TensorBoardLogger('tb_logs', name= 'my_model')
+# logger = TensorBoardLogger('tb_logs', name= 'my_model')
+
+wandb_logger = WandbLogger(name='Wandb_3')
+
 
 early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
 ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}", save_top_k=1, verbose=False,
                       monitor="loss", mode="min")
 
-trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp], logger=logger)
+trainer = Trainer(gpus=0, min_epochs=1, max_epochs=2, deterministic=True, callbacks=[early_stop_callback, ckp], logger=wandb_logger)
 
 
 trainer.fit(model, train, val)
@@ -586,97 +606,54 @@ res = trainer.test(test_dataloaders=test)
 
 
 # +
-# # !pip uninstall -q tensorboard tb-nightly -y
+# # !pip install wandb==0.9.7
 
 # +
-# # ! pip list --format=freeze | grep tensorboard | xargs pip uninstall -y
-
-# +
-# # !python -m pip install --upgrade pip
+# wandb_logger = WandbLogger()
 # -
 
 
 
-# +
-# # ! pip install -q tensorflow --use-feature=2020-resolver
 
-# +
-# # %reload_ext tensorboard
-
-# +
-# # !pip list 
-
-# +
-# # !pip3 uninstall tensorflow protobuf -y && pip3 install tensorflow protobuf
-
-# +
-# # !pip3 uninstall numpy 
-# # !pip3 install numpy==1.19.5 -y
-
-# +
-# # %load_ext tensorboard
-# # %tensorboard --logdir lightening_logs --load_fast false
-# os.environ['TENSORBOARD_BINARY'] = '???'
-# # %python -m tensorboard.main --logdir tb_logs/
-
-# +
-# from tensorboard import notebook
-# notebook.list()
-
-# +
-# from absl import logging
-# logging.set_verbosity(logging.DEBUG)
-
-# +
-# tensorboard --version
 
 # +
 # from tensorboardX import SummaryWriter
 
 # +
-#3 try to use logger and tensorboard
-# logdir='scalar/tutorial' is a directory that data for tensorboard will be saved.
-
-# writer = SummaryWriter(logdir='scalar/tutorial')
-
+# writer = SummaryWriter('runs/exp-1')
 
 # +
-# #2 try to use logger and tensorboard
-# # IT runs completely, but I did not see anything happen
-# from pytorch_lightning.loggers import WandbLogger  # newline 1
-# from pytorch_lightning import Trainer
-
-# wandb_logger = WandbLogger()  # newline 2
-# # trainer = Trainer(logger=wandb_logger)
-# -
-
-
+# pip list | grep tensorflow
 
 # +
-#1 try to use logger and tensorboard
+# # %load_ext tensorboard
 
-# No response to paging :|
-# logger = TensorBoardLogger(save_dir='/untitled folder/', name='trainer')
-# logger = TensorBoardLogger(save_dir='/TEST_logs/lightning_logs/test/', name='model2')
+# +
+# # %tensorboard --logdir './runs/exp-1' --load_fast false
 
-# -
-
-
-
-
+# +
+# tensorboard --version
 
 # +
 # # +
-model.eval()
-pred = {}
-pred['main_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['main_y']
-pred['percentage_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['percentage_y']
 
-pred['main_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['main_y'])).detach().view(-1))], axis=1)
-pred['percentage_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['percentage_y'])).detach().view(-1))], axis=1)
+trainer.test()
 
-pred['main_y'].to_csv("predictions_main_nn.csv.gz", index=False)
-pred['percentage_y'].to_csv("predictions_percentage_nn.csv.gz", index=False)
+"""
+#for now we replace model.eval with trainer.test
+"""
+
+# model.eval()
+# pred = {}
+# pred['main_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['main_y']
+# pred['percentage_y'] = model(torch.tensor(X["test"].values.astype(np.float)))['percentage_y']
+
+# pred['main_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['main_y'])).detach().view(-1))], axis=1)
+# pred['percentage_y']  = pd.concat([test_pids, pd.Series(torch.round(torch.sigmoid(pred['percentage_y'])).detach().view(-1))], axis=1)
+
+# pred['main_y'].to_csv("predictions_main_nn.csv.gz", index=False)
+# pred['percentage_y'].to_csv("predictions_percentage_nn.csv.gz", index=False)
+
 
 
 # +
