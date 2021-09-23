@@ -376,10 +376,13 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     model = MyNet(hparams)
     model.double()
 
-    tune_metrics = {"loss": "loss", "mcc_main_y": "mcc_main_y", "acc_main_y": "acc_main_y",
-                    "prec_main_y": "prec_main_y",
-                    "rec_main_y": "rec_main_y", "f1_main_y": "f1_main_y",
-                    "MAE_y": "MAE_y", "MSE_y": "MSE_y", "r2_y": "r2_y"}
+    tune_metrics = {"loss": "loss"}
+    
+    for task in classification_tasks:
+        tune_metrics.update({"mcc_%s" % task : "mcc_%s" % task, "acc_%s" % task: "acc_%s" % task, "prec_%s" % task: "prec_%s" % task, "rec_%s" % task: "rec_%s" % task, "f1_%s" % task: "f1_%s" % task})
+    
+    for task in regression_tasks:
+        tune_metrics.update({"MAE_%s" % task : "MAE_%s" % task, "MSE_%s" % task: "MSE_%s" % task, "r2_%s" % task: "r2_%s" % task})
 
     tune_cb = TuneReportCallback(tune_metrics, on="validation_end")
 

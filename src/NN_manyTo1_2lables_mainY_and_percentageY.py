@@ -17,10 +17,10 @@
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
-from src.NN_commons import calculate_regression_metrics, calculate_classification_metrics, LSTMLayer
-from src.NN_commons import data_exists, load_data, save_data, create_xy
-from src.NN_commons import run_tuning_procedure
-from src.NN_commons import myXYDataset
+from NN_commons import calculate_regression_metrics, calculate_classification_metrics, LSTMLayer
+from NN_commons import data_exists, load_data, save_data, create_xy
+from NN_commons import run_tuning_procedure
+from NN_commons import myXYDataset
 
 import os
 from argparse import Namespace
@@ -185,16 +185,6 @@ class MyNet(pl.LightningModule):
             pred[l] = torch.stack([row["preds"][l] for row in outputs]).view(-1)
             pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
 
-        # y['main_y'] = torch.stack([row["y"][0:, 0:-1] for row in outputs]).view(-1).cpu()
-        # y['percentage_y'] = torch.stack([row["y"][0:, 1:] for row in outputs]).view(-1).cpu()
-
-        # pred['main_y'] = torch.stack([row["preds"]['main_y'] for row in outputs]).view(-1)
-        # pred['percentage_y'] = torch.stack([row["preds"]['percentage_y'] for row in outputs]).view(-1)
-
-        # pred['main_y'] = torch.round(torch.sigmoid(pred['main_y']))
-        # pred['main_y'] = pred['main_y'].cpu()
-        # pred['percentage_y'] = pred['percentage_y'].cpu()
-
         for label in self.classification_tasks:
             acc, prec, rec, f1, mcc = calculate_classification_metrics(y[label], pred[label])
             self.log("acc_%s" % label, acc)
@@ -210,11 +200,11 @@ class MyNet(pl.LightningModule):
         for label in self.regression_tasks:
             MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
 
-            self.log("MAE_y", MAE)
-            self.log("MSE_y", MSE)
-            self.log("r2_y", r2)
+            self.log("MAE_%s" % label, MAE)
+            self.log("MSE_%s" % label, MSE)
+            self.log("r2_%s" % label, r2)
 
-            print("(Val_%s) Epoch: %d, MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
+            print("(Val_%s) Epoch: %d, MAE: %.3f, MSE: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
     def test_epoch_end(self, outputs):
         test_loss = torch.stack([row['loss'] for row in outputs]).mean()
@@ -242,15 +232,16 @@ class MyNet(pl.LightningModule):
         for label in self.regression_tasks:
             MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
 
-            self.log("MAE_y", MAE)
-            self.log("MSE_y", MSE)
-            self.log("r2_y", r2)
+            self.log("MAE_%s" % label, MAE)
+            self.log("MSE_%s" % label, MSE)
+            self.log("r2_%s" % label, r2)
 
-            print("(Test_%s) Epoch: %d, MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
+            print("(Test_%s) Epoch: %d, MAE: %.3f, MSE: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
 
-datafolder = "../data/processed/train_test_splits/10min_centered/"
-featset = "raw"  # Options are [raw, tsfresh] --> sys.argv[1]
+exp = "10min_centered"
+datafolder = "../data/processed/train_test_splits/%s/" % exp
+featset = "raw"  # Options are [raw, tsfresh]
 
 if data_exists(datafolder, featset):
     print("Data already exist. Loading files from %s" % (datafolder))
@@ -278,6 +269,7 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
         "opt_step_size": tune.randint(1, 20),
         "weight_decay": tune.loguniform(1e-5, 1e-2),
         # Problem specific
+	"labels": ["main_y"],
         "classification_tasks": ["main_y"],
         "regression_tasks": [],
         "loss_fnct": [nn.BCEWithLogitsLoss],
@@ -291,10 +283,9 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
 
 # This needs to be the fullpath
 do_parameter_tunning(MyNet,
-                     "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/10min_centered/",
-                     featset, ncpus=48, ngpus=1, ntrials=50,
-                     #exp_name="exp_manyTo1_%s" % (featset),
-                     exp_name="exp_only_main",
+                     "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
+                     featset, ncpus=48, ngpus=1, ntrials=50, # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
+                     exp_name="exp_only_main_%s_%s" % (featset, exp), 
                      min_epochs=1, max_epochs=50)
 
 # +
