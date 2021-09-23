@@ -212,16 +212,16 @@ class LSTMLayer(pl.LightningModule):
         print("Very Last: %d, Out: %d" % (last_d, output_dim))
         print("#Lin layers: ", len(self.linlayers))
 
-        # if bidirectional:
-        #     self.hn = torch.zeros(num_layers * 2, hidden_dim, hidden_dim).double()
-        #     self.cn = torch.zeros(num_layers * 2, hidden_dim, hidden_dim).double()
-        # else:
-        #     # Not sure why we need to multiply num_layers * hidden_dim here and not on the if above
-        #     self.hn = torch.zeros(num_layers, num_layers * hidden_dim, hidden_dim).double()
-        #     self.cn = torch.zeros(num_layers, num_layers * hidden_dim, hidden_dim).double()
-        #
-        # nn.init.xavier_normal_(self.hn)
-        # nn.init.xavier_normal_(self.cn)
+        if bidirectional:
+            self.hn = torch.zeros(num_layers * 2, hidden_dim, hidden_dim).double()
+            self.cn = torch.zeros(num_layers * 2, hidden_dim, hidden_dim).double()
+        else:
+            # Not sure why we need to multiply num_layers * hidden_dim here and not on the if above
+            self.hn = torch.zeros(num_layers, num_layers * hidden_dim, hidden_dim).double()
+            self.cn = torch.zeros(num_layers, num_layers * hidden_dim, hidden_dim).double()
+
+        nn.init.xavier_normal_(self.hn)
+        nn.init.xavier_normal_(self.cn)
 
         self.last_lin = nn.Sequential(nn.Linear(last_d, output_dim), nn.ReLU(inplace=True))
         self.break_point = break_point
@@ -230,6 +230,7 @@ class LSTMLayer(pl.LightningModule):
         x = x.view(x.shape[0], x.shape[1] // self.break_point, -1)
 
         x, _ = self.lstm(x)
+
         # x, (self.hn, self.cn) = self.lstm(x, (self.hn, self.cn))
         x = x.reshape(x.shape[0], -1)
 
@@ -327,6 +328,12 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     opt_step_size = config["opt_step_size"]
     weight_decay = config["weight_decay"]
 
+    labels = config["labels"]
+    classification_tasks = config["classification_tasks"]
+    regression_tasks = config["regression_tasks"]
+    weights = config["weights"]
+    loss_fnct = config["loss_fnct"]
+
     X, Y, test_pids = load_data(datafolder, featset)
 
     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True,
@@ -358,6 +365,12 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
                         lstm_output_dim=lstm_output_dim,
                         dropout_lstm=dropout_lstm,
                         dropout_lin=dropout_lin,
+                        #
+                        labels=labels,
+                        loss_fnct=loss_fnct,
+                        regression_tasks=regression_tasks,
+                        classification_tasks=classification_tasks,
+                        weights=weights,
                         )
 
     model = MyNet(hparams)

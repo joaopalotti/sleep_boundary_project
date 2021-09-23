@@ -49,6 +49,11 @@ class MyNet(pl.LightningModule):
 
         self.save_hyperparameters()
         self.timestamp = datetime.now()
+        self.labels = hparams.labels
+        self.loss_fnct = hparams.loss_fnct
+        self.weights = hparams.weights
+        self.regression_tasks = hparams.regression_tasks
+        self.classification_tasks = hparams.classification_tasks
 
         # Optimizer configs
         self.opt_learning_rate = hparams.opt_learning_rate
@@ -64,9 +69,14 @@ class MyNet(pl.LightningModule):
         self.lstm_layers = hparams.lstm_layers
         self.lstm_output_dim = hparams.lstm_output_dim
         self.input_dim = hparams.input_dim
+        # self.use_cnn = hparams.use_cnn
 
         # Other configs
         self.batch_size = hparams.batch_size
+
+        #if self.use_cnn:
+        #    TODO: have a cnn layer to process the input before sending it to the LSTM layer
+        #    self.cnn = CNN(...)
 
         self.net = LSTMLayer(input_size=self.input_dim, break_point=self.input_dim,
                              dropout_lstm=self.dropout_lstm,
@@ -78,29 +88,33 @@ class MyNet(pl.LightningModule):
                              )
 
         self.drop = nn.Dropout(self.dropout_lin)
-        self.head = nn.ModuleDict({
-            'main_y': nn.Sequential(OrderedDict([
-                ('lin1', nn.Linear(self.lstm_output_dim, 4)),
-                ('act1', nn.ReLU(inplace=True)),
-                ('dropout', nn.Dropout(self.dropout_lin)),
-                ('lin2', nn.Linear(4, 1))
-            ])),
 
-            'percentage_y': nn.Sequential(OrderedDict([
-                ('lin1', nn.Linear(self.lstm_output_dim, 4)),
-                ('act1', nn.ReLU(inplace=True)),
-                #             ('act1', nn.ReLU(inplace=False)),
-                ('dropout', nn.Dropout(self.dropout_lin)),
-                ('lin2', nn.Linear(4, 1))
-            ])),
-        })
+        self.head = nn.ModuleDict()
+        for label in self.labels:
+            self.head[label] = nn.Sequential(OrderedDict([
+                ('lin1_%s' % label, nn.Linear(self.lstm_output_dim, 4)),
+                ('act1_%s' % label, nn.ReLU(inplace=True)),
+                ('dropout_%s' % label, nn.Dropout(self.dropout_lin)),
+                ('lin2_%s' % label, nn.Linear(4, 1))
+            ]))
+
+
+
+    # Options:
+    # (1) input => feature extraction using TSFresh -> LSTM -> lin -> results
+    # (2) input => no feature extraction -> LSTM -> lin -> results
+    # (3) input => feature extraction with CNN (raw) -> LSTM = > LinearLayer = > Results
+
 
     def forward(self, x):
+        #if self.use_cnn:
+        #    x = self.cnn(x)
+
         x = self.net(x)
         x = self.drop(x)
         out = {}
-        out['main_y'] = self.head['main_y'](x)
-        out['percentage_y'] = self.head['percentage_y'](x)
+        for label in self.labels:
+            out[label] = self.head[label](x)
 
         return out
 
@@ -115,20 +129,20 @@ class MyNet(pl.LightningModule):
         return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'loss'}
 
     def calculate_losses(self, y, predictions):
-        classificationl_loss_fnct = nn.BCEWithLogitsLoss()
-        regression_loss_fnct = nn.L1Loss()
 
-        label = {}
-        label['main_y'] = y[:, :1]
-        label['percentage_y'] = y[:, 1:2]
+        y_label = {}
+        for i, l in enumerate(self.labels):
+            y_label[l] = y[:, i:i+1]
 
-        closs = classificationl_loss_fnct(predictions["main_y"], label["main_y"])
-        rloss = regression_loss_fnct(predictions["percentage_y"], label["percentage_y"])
+        losses = []
+        for i, l in enumerate(self.labels):
+            v = self.loss_fnct[i]()(predictions[l], y_label[l])
+            losses.append(v)
+            self.log('%s_loss' % l, v)
 
-        self.log('mainY_loss', closs)
-        self.log('percentageY_loss', rloss)
-
-        final_loss = 0.75 * closs + 0.25 * rloss
+        final_loss = 0
+        for i in range(len(self.labels)):
+            final_loss = final_loss + (losses[i] * self.weights[i])
 
         return final_loss
 
@@ -165,79 +179,78 @@ class MyNet(pl.LightningModule):
         print("(Validation) Total Loss: %.4f" % val_loss)
 
         y = {}
-        y['main_y'] = torch.stack([row["y"][0:, 0:-1] for row in outputs]).view(-1).cpu()
-        y['percentage_y'] = torch.stack([row["y"][0:, 1:] for row in outputs]).view(-1).cpu()
-
         pred = {}
-        pred['main_y'] = torch.stack([row["preds"]['main_y'] for row in outputs]).view(-1)
-        pred['percentage_y'] = torch.stack([row["preds"]['percentage_y'] for row in outputs]).view(-1)
+        for i, l in enumerate(self.labels):
+            y[l] = torch.stack([row["y"][0:, i:i+1] for row in outputs]).view(-1).cpu()
+            pred[l] = torch.stack([row["preds"][l] for row in outputs]).view(-1)
+            pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
 
-        pred['main_y'] = torch.round(torch.sigmoid(pred['main_y']))
-        pred['main_y'] = pred['main_y'].cpu()
-        pred['percentage_y'] = pred['percentage_y'].cpu()
+        # y['main_y'] = torch.stack([row["y"][0:, 0:-1] for row in outputs]).view(-1).cpu()
+        # y['percentage_y'] = torch.stack([row["y"][0:, 1:] for row in outputs]).view(-1).cpu()
 
-        key_list = ['main_y', 'percentage_y']
+        # pred['main_y'] = torch.stack([row["preds"]['main_y'] for row in outputs]).view(-1)
+        # pred['percentage_y'] = torch.stack([row["preds"]['percentage_y'] for row in outputs]).view(-1)
 
-        acc_main_y, prec_main_y, rec_main_y, f1_main_y, mcc_main_y = calculate_classification_metrics(y['main_y'],
-                                                                                                      pred['main_y'])
+        # pred['main_y'] = torch.round(torch.sigmoid(pred['main_y']))
+        # pred['main_y'] = pred['main_y'].cpu()
+        # pred['percentage_y'] = pred['percentage_y'].cpu()
 
-        self.log("acc_main_y", acc_main_y)
-        self.log("prec_main_y", prec_main_y)
-        self.log("rec_main_y", rec_main_y)
-        self.log("f1_main_y", f1_main_y)
-        self.log("mcc_main_y", mcc_main_y)
+        for label in self.classification_tasks:
+            acc, prec, rec, f1, mcc = calculate_classification_metrics(y[label], pred[label])
+            self.log("acc_%s" % label, acc)
+            self.log("prec_%s" % label, prec)
+            self.log("rec_%s" % label, rec)
+            self.log("f1_%s" % label, f1)
+            self.log("mcc_%s" % label, mcc)
 
-        print("(Val_main_y) Epoch: %d, Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (self.current_epoch,
-                                                                                            acc_main_y, prec_main_y,
-                                                                                            rec_main_y, f1_main_y,
-                                                                                            mcc_main_y))
+            print("(Val_%s) Epoch: %d, Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (label,
+                                                                                            self.current_epoch,
+                                                                                            acc, prec, rec, f1, mcc))
 
-        MAE_y, MSE_y, r2_y = calculate_regression_metrics(y['percentage_y'], pred['percentage_y'])
+        for label in self.regression_tasks:
+            MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
 
-        self.log("MAE_y", MAE_y)
-        self.log("MSE_y", MSE_y)
-        self.log("r2_y", r2_y)
+            self.log("MAE_y", MAE)
+            self.log("MSE_y", MSE)
+            self.log("r2_y", r2)
 
-        print("(Val_percentage_y) Epoch: %d, MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (self.current_epoch,
-                                                                                    MAE_y, MSE_y, r2_y))
+            print("(Val_%s) Epoch: %d, MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
     def test_epoch_end(self, outputs):
         test_loss = torch.stack([row['loss'] for row in outputs]).mean()
         print("(Test) Total Loss: %.4f" % test_loss)
 
         y = {}
-        y['main_y'] = torch.stack([row["y"][0:, 0:-1] for row in outputs]).view(-1).cpu()
-        y['percentage_y'] = torch.stack([row["y"][0:, 1:] for row in outputs]).view(-1).cpu()
-
         pred = {}
-        pred['main_y'] = torch.stack([row["preds"]['main_y'] for row in outputs]).view(-1)
-        pred['percentage_y'] = torch.stack([row["preds"]['percentage_y'] for row in outputs]).view(-1)
-        pred['main_y'] = torch.round(torch.sigmoid(pred['main_y']))
-        pred['main_y'] = pred['main_y'].cpu()
-        pred['percentage_y'] = pred['percentage_y'].cpu()
+        for i, l in enumerate(self.labels):
+            y[l] = torch.stack([row["y"][0:, i:i+1] for row in outputs]).view(-1).cpu()
+            pred[l] = torch.stack([row["preds"][l] for row in outputs]).view(-1)
+            pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
 
-        acc_main_y, prec_main_y, rec_main_y, f1_main_y, mcc_main_y = calculate_classification_metrics(y['main_y'],
-                                                                                                      pred['main_y'])
+        for label in self.classification_tasks:
+            acc, prec, rec, f1, mcc = calculate_classification_metrics(y[label], pred[label])
+            self.log("acc_%s" % label, acc)
+            self.log("prec_%s" % label, prec)
+            self.log("rec_%s" % label, rec)
+            self.log("f1_%s" % label, f1)
+            self.log("mcc_%s" % label, mcc)
 
-        self.log("acc_main_y", acc_main_y)
-        self.log("prec_main_y", prec_main_y)
-        self.log("rec_main_y", rec_main_y)
-        self.log("f1_main_y", f1_main_y)
-        self.log("mcc_main_y", mcc_main_y)
-        print("TEST: Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (
-            acc_main_y, prec_main_y, rec_main_y, f1_main_y, mcc_main_y))
+            print("(Test_%s) Epoch: %d, Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (label,
+                                                                                            self.current_epoch,
+                                                                                            acc, prec, rec, f1, mcc))
 
-        MAE_y, MSE_y, r2_y = calculate_regression_metrics(y['percentage_y'], pred['percentage_y'])
+        for label in self.regression_tasks:
+            MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
 
-        self.log("MAE_y", MAE_y)
-        self.log("MSE_y", MSE_y)
-        self.log("r2_y", r2_y)
+            self.log("MAE_y", MAE)
+            self.log("MSE_y", MSE)
+            self.log("r2_y", r2)
 
-        print("(TEST: MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (MAE_y, MSE_y, r2_y))
+            print("(Test_%s) Epoch: %d, MAE_y: %.3f, MSE_y: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
 
 datafolder = "../data/processed/train_test_splits/10min_centered/"
-featset = "raw"  # Options are [raw, tsfresh]
+featset = "raw"  # Options are [raw, tsfresh] --> sys.argv[1]
 
 if data_exists(datafolder, featset):
     print("Data already exist. Loading files from %s" % (datafolder))
@@ -264,6 +277,13 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
         # Optmizer
         "opt_step_size": tune.randint(1, 20),
         "weight_decay": tune.loguniform(1e-5, 1e-2),
+        # Problem specific
+        "classification_tasks": ["main_y"],
+        "regression_tasks": [],
+        "loss_fnct": [nn.BCEWithLogitsLoss],
+        "weights": [1.],
+        # loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
+        # weight = [0.75, 0.25]
     }
     run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus,
                          min_epochs=min_epochs, max_epochs=max_epochs)
@@ -272,11 +292,13 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
 # This needs to be the fullpath
 do_parameter_tunning(MyNet,
                      "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/10min_centered/",
-                     featset, ncpus=48, ngpus=1, ntrials=50, exp_name="exp_manyTo1_%s" % (featset),
+                     featset, ncpus=48, ngpus=1, ntrials=50,
+                     #exp_name="exp_manyTo1_%s" % (featset),
+                     exp_name="exp_only_main",
                      min_epochs=1, max_epochs=50)
 
 # +
-# batch_size = 256
+# batch_size = 64
 # dropout_lstm = 0.87986
 # dropout_lin = 0.087821
 # learning_rate = 0.00021999
@@ -286,6 +308,12 @@ do_parameter_tunning(MyNet,
 # bidirectional = False
 # lstm_layers = 2
 # lstm_output_dim = 129
+#
+# labels = ["main_y"] # , "percentage_y"]
+# regression_tasks = [] # ["percentage_y"]
+# classification_tasks = ["main_y"]
+# loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
+# weights = [0.75, 0.25]
 #
 # hparams = Namespace(batch_size=batch_size,
 #                     dropout_lstm=dropout_lstm,
@@ -303,6 +331,12 @@ do_parameter_tunning(MyNet,
 #                     bidirectional=bidirectional,
 #                     lstm_layers=lstm_layers,
 #                     lstm_output_dim=lstm_output_dim,
+#                     #
+#                     labels=labels,
+#                     loss_fnct=loss_fnct,
+#                     weights=weights,
+#                     classification_tasks=classification_tasks,
+#                     regression_tasks=regression_tasks
 #                     )
 #
 #
