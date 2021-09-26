@@ -334,6 +334,10 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     weights = config["weights"]
     loss_fnct = config["loss_fnct"]
 
+    use_cnn = config["use_cnn"]
+    cnn_kernel_size = config["cnn_kernel_size"]
+
+
     X, Y, test_pids = load_data(datafolder, featset)
 
     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True,
@@ -358,6 +362,8 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
                         opt_weight_decay=weight_decay,
                         opt_step_size=opt_step_size,
                         opt_gamma=0.5,
+                        use_cnn=use_cnn,
+                        cnn_kernel_size=cnn_kernel_size,
                         # LSTM configs
                         hidden_dim=hidden_dim,
                         bidirectional=bidirectional,

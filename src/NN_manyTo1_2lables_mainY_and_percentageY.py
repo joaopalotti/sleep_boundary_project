@@ -69,14 +69,14 @@ class MyNet(pl.LightningModule):
         self.lstm_layers = hparams.lstm_layers
         self.lstm_output_dim = hparams.lstm_output_dim
         self.input_dim = hparams.input_dim
-        # self.use_cnn = hparams.use_cnn
+        self.use_cnn = hparams.use_cnn
+        self.cnn_kernel_size = hparams.cnn_kernel_size
 
         # Other configs
         self.batch_size = hparams.batch_size
 
-        #if self.use_cnn:
-        #    TODO: have a cnn layer to process the input before sending it to the LSTM layer
-        #    self.cnn = CNN(...)
+        if self.use_cnn:
+            self.cnn = nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size, stride=1, padding="same")
 
         self.net = LSTMLayer(input_size=self.input_dim, break_point=self.input_dim,
                              dropout_lstm=self.dropout_lstm,
@@ -107,8 +107,10 @@ class MyNet(pl.LightningModule):
 
 
     def forward(self, x):
-        #if self.use_cnn:
-        #    x = self.cnn(x)
+        if self.use_cnn:
+            x = x.unsqueeze(1)  # Reshape from (B,L) to (B, C=1, L)
+            x = self.cnn(x)
+            x = x.squeeze(1)  # Reshape it back to (B,L)
 
         x = self.net(x)
         x = self.drop(x)
@@ -269,13 +271,15 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
         "opt_step_size": tune.randint(1, 20),
         "weight_decay": tune.loguniform(1e-5, 1e-2),
         # Problem specific
-	"labels": ["main_y"],
+        "labels": ["main_y"],
         "classification_tasks": ["main_y"],
         "regression_tasks": [],
         "loss_fnct": [nn.BCEWithLogitsLoss],
         "weights": [1.],
         # loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
         # weight = [0.75, 0.25]
+        "use_cnn": [True],
+        "cnn_kernel_size": tune.randint(2, 11),
     }
     run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus,
                          min_epochs=min_epochs, max_epochs=max_epochs)
@@ -285,7 +289,7 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
 do_parameter_tunning(MyNet,
                      "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
                      featset, ncpus=48, ngpus=1, ntrials=50, # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
-                     exp_name="exp_only_main_%s_%s" % (featset, exp), 
+                     exp_name="exp_cnnlstm_%s_%s" % (featset, exp),
                      min_epochs=1, max_epochs=50)
 
 # +
@@ -299,6 +303,8 @@ do_parameter_tunning(MyNet,
 # bidirectional = False
 # lstm_layers = 2
 # lstm_output_dim = 129
+# use_cnn = True
+# cnn_kernel_size = 5
 #
 # labels = ["main_y"] # , "percentage_y"]
 # regression_tasks = [] # ["percentage_y"]
@@ -310,6 +316,8 @@ do_parameter_tunning(MyNet,
 #                     dropout_lstm=dropout_lstm,
 #                     dropout_lin=dropout_lin,
 #                     input_dim=X["train"].shape[1],
+#                     use_cnn=use_cnn,
+#                     cnn_kernel_size=cnn_kernel_size,
 #                     #
 #                     # Optmizer configs
 #                     #
