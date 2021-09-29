@@ -44,21 +44,26 @@ def pycater_setup(train_data, test_data,
                        # remove_outliers = True,
                        polynomial_features = True,
                        # fix_imbalance = True,
+                       n_jobs=10
                    )
     return experiment
 
 
-#all_data = pd.read_csv("all_data.csv.gz")
-train_data = pd.read_csv("train_data.csv.gz")
-test_data = pd.read_csv("test_data.csv.gz")
+exp = "40min_centered"
+featset = "tsfresh"
+datapath = "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp)
+print("Running with %s %s %s" % (exp, featset, datapath))
 
-experiment = pycater_setup(train_data, test_data, 
-                           gt_label = "ground_truth", ignore_feat = ["pid", "fold"])
+train_data = pd.read_csv(os.path.join(datapath, "train_%s_data.csv.gz" % featset))
+test_data = pd.read_csv(os.path.join(datapath, "test_%s_data.csv.gz" % featset))
+
+experiment = pycater_setup(train_data, test_data, gt_label="ground_truth", ignore_feat=["pid", "fold"])
+
 
 # +
 for m in tqdm(["lr", "rf", "et", "lda", "catboost", "lightgbm"]):
 
-    experiment_filename = "sleep_ml_%s" % (m)
+    experiment_filename = "sleep_ml_%s_%s_%s" % (m, exp, featset)
     print("Creating a %s model." % (m))
     model = create_model(m)
     model = tune_model(model, n_iter=20, choose_better=True)
@@ -68,6 +73,8 @@ for m in tqdm(["lr", "rf", "et", "lda", "catboost", "lightgbm"]):
 
     dfresult = pull()
     dfresult["model"] = m
+    dfresult["exp"] = exp
+    dfresult["featset"] = featset
     dfresult["X_shape"] = get_config("X").shape[0]
     dfresult["y_train_shape"] = get_config("y_train").shape[0]
     dfresult["y_test_shape"] = get_config("y_test").shape[0]
@@ -82,6 +89,8 @@ for m in tqdm(["lr", "rf", "et", "lda", "catboost", "lightgbm"]):
     dfresult["X_shape"] = get_config("X").shape[0]
     dfresult["y_train_shape"] = get_config("y_train").shape[0]
     dfresult["y_test_shape"] = get_config("y_test").shape[0]
+    dfresult["exp"] = exp
+    dfresult["featset"] = featset
     dfresult.to_csv("%s_test.csv.gz" % experiment_filename, index=False)
     predictions[["Label", "Score"]].to_csv("%s_predictions.csv.gz" % experiment_filename)
 
