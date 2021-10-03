@@ -259,6 +259,15 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
     opt_step_size = config["opt_step_size"]
     weight_decay = config["weight_decay"]
 
+    labels = config["labels"]
+    classification_tasks = config["classification_tasks"]
+    regression_tasks = config["regression_tasks"]
+    weights = config["weights"]
+    loss_fnct = config["loss_fnct"]
+
+    use_cnn = config["use_cnn"]
+    cnn_kernel_size = config["cnn_kernel_size"]
+
     X, Y, test_pids = load_data(datafolder, featset)
 
     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True,
@@ -289,6 +298,8 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
                             opt_weight_decay=weight_decay,
                             opt_step_size=opt_step_size,
                             opt_gamma=0.5,
+                            use_cnn=use_cnn,
+                            cnn_kernel_size=cnn_kernel_size,
                             # LSTM configs
                             hidden_dim=hidden_dim,
                             bidirectional=bidirectional,
@@ -296,6 +307,12 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
                             lstm_output_dim=lstm_output_dim,
                             dropout_lstm=dropout_lstm,
                             dropout_lin=dropout_lin,
+                            #
+                            labels=labels,
+                            loss_fnct=loss_fnct,
+                            regression_tasks=regression_tasks,
+                            classification_tasks=classification_tasks,
+                            weights=weights,
                             )
 
         model = MyNet(hparams)
