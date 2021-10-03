@@ -188,10 +188,12 @@ class LSTMLayer(pl.LightningModule):
                  ):
         super(LSTMLayer, self).__init__()
 
+        self.hidden_dim = hidden_dim
+
         if break_point is None:
             break_point = input_size
 
-        self.lstm = nn.LSTM(break_point, hidden_dim, num_layers=num_layers, dropout=dropout_lstm,
+        self.lstm = nn.LSTM(break_point, self.hidden_dim, num_layers=num_layers, dropout=dropout_lstm,
                             batch_first=True, bidirectional=bidirectional)
         self.linlayers = nn.ModuleList()
         self.drop = nn.Dropout(dropout_lin)
@@ -212,52 +214,21 @@ class LSTMLayer(pl.LightningModule):
         print("Very Last: %d, Out: %d" % (last_d, output_dim))
         print("#Lin layers: ", len(self.linlayers))
 
-        if bidirectional:
-            self.hn = torch.zeros(num_layers * 2, hidden_dim, hidden_dim).double()
-            self.cn = torch.zeros(num_layers * 2, hidden_dim, hidden_dim).double()
-        else:
-            # Not sure why we need to multiply num_layers * hidden_dim here and not on the if above
-            self.hn = torch.zeros(num_layers, num_layers * hidden_dim, hidden_dim).double()
-            self.cn = torch.zeros(num_layers, num_layers * hidden_dim, hidden_dim).double()
-
-        nn.init.xavier_normal_(self.hn)
-        nn.init.xavier_normal_(self.cn)
-
         self.last_lin = nn.Sequential(nn.Linear(last_d, output_dim), nn.ReLU(inplace=True))
         self.break_point = break_point
-        
-        
-    # I did not find a way to make 'many_to_many' variabale initializeing while initializing hyperparameters
-    def forward(self, x, many_to_many = False):
-        x = x.view(x.shape[0], x.shape[1] // self.break_point, -1)
-        
-        if(many_to_many == True):
-            hidden = self.init_hidden()
-            x, hidden = self.lstm(x, hidden)
-            
-            
-        else:
-            x, _ = self.lstm(x)
 
-            # x, (self.hn, self.cn) = self.lstm(x, (self.hn, self.cn))
-        x = x.reshape(x.shape[0], -1)
+    def forward(self, x, hs):
+
+        x = x.view(x.shape[0], x.shape[1] // self.break_point, -1)
+        x, hs = self.lstm(x, hs)
+
+        x = x.reshape(-1, self.hidden_dim)
 
         for lay in self.linlayers:
             x = lay(x)
 
         x = self.last_lin(x)
-        return x
-    
-    def init_hidden(self):
-
-        h0 = torch.zeros(self.num_layers*2, self.hidden_dim, self.output_dim-1).double()
-        c0 = torch.zeros(self.num_layers*2, self.hidden_dim, self.output_dim-1).double()
-
-        nn.init.xavier_normal_(h0)
-        nn.init.xavier_normal_(c0)
-        hidden = (h0,c0)
-        
-        return hidden
+        return x, hs
 
 
 # -
@@ -373,7 +344,6 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     use_cnn = config["use_cnn"]
     cnn_kernel_size = config["cnn_kernel_size"]
 
-
     X, Y, test_pids = load_data(datafolder, featset)
 
     train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True,
@@ -419,12 +389,15 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     model.double()
 
     tune_metrics = {"loss": "loss"}
-    
+
     for task in classification_tasks:
-        tune_metrics.update({"mcc_%s" % task : "mcc_%s" % task, "acc_%s" % task: "acc_%s" % task, "prec_%s" % task: "prec_%s" % task, "rec_%s" % task: "rec_%s" % task, "f1_%s" % task: "f1_%s" % task})
-    
+        tune_metrics.update(
+            {"mcc_%s" % task: "mcc_%s" % task, "acc_%s" % task: "acc_%s" % task, "prec_%s" % task: "prec_%s" % task,
+             "rec_%s" % task: "rec_%s" % task, "f1_%s" % task: "f1_%s" % task})
+
     for task in regression_tasks:
-        tune_metrics.update({"MAE_%s" % task : "MAE_%s" % task, "MSE_%s" % task: "MSE_%s" % task, "r2_%s" % task: "r2_%s" % task})
+        tune_metrics.update(
+            {"MAE_%s" % task: "MAE_%s" % task, "MSE_%s" % task: "MSE_%s" % task, "r2_%s" % task: "r2_%s" % task})
 
     tune_cb = TuneReportCallback(tune_metrics, on="validation_end")
 
@@ -458,7 +431,3 @@ def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, n
     analysis.results_df.to_csv("all_results_exp%s_trials%d.csv" % (expname, ntrials))
     print("Best 5 results")
     print(analysis.results_df.sort_values(by="loss", ascending=False).head(5))
-
-
-
-

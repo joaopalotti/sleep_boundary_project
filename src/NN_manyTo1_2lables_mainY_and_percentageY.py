@@ -23,6 +23,7 @@ from NN_commons import run_tuning_procedure
 from NN_commons import myXYDataset
 
 import os
+import ast
 from argparse import Namespace
 import torch
 import torch.nn as nn
@@ -102,13 +103,25 @@ class MyNet(pl.LightningModule):
                 ('lin2_%s' % label, nn.Linear(4, 1))
             ]))
 
-
+        self.hs = self.init_hidden()
 
     # Options:
     # (1) input => feature extraction using TSFresh -> LSTM -> lin -> results
     # (2) input => no feature extraction -> LSTM -> lin -> results
     # (3) input => feature extraction with CNN (raw) -> LSTM = > LinearLayer = > Results
 
+    def init_hidden(self):
+
+        D = 2 if self.bidirectional else 1
+
+        h0 = torch.zeros(self.lstm_layers * D, self.batch_size, self.hidden_dim).double()
+        c0 = torch.zeros(self.lstm_layers * D, self.batch_size, self.hidden_dim).double()
+
+        nn.init.xavier_normal_(h0)
+        nn.init.xavier_normal_(c0)
+        hidden = (h0, c0)
+
+        return hidden
 
     def forward(self, x):
         if self.use_cnn:
@@ -116,7 +129,8 @@ class MyNet(pl.LightningModule):
             x = self.cnn(x)
             x = x.squeeze(1)  # Reshape it back to (B,L)
 
-        x = self.net(x)
+        x, self.hs = self.net(x, self.hs)
+        self.hs = tuple([h.data for h in self.hs])
         x = self.drop(x)
         out = {}
         for label in self.labels:
@@ -305,6 +319,46 @@ do_parameter_tunning(MyNet,
                      exp_name="exp_%s_%s_2cnn%s" % (featset, exp, usecnn),
                      min_epochs=1, max_epochs=50)
 
+# def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
+#                          min_epochs=1, max_epochs=2):
+#     config = {
+#         # High level network configs
+#         "learning_rate": tune.loguniform(1e-6, 1e-1),
+#         "batch_size": tune.choice([32, 64, 128, 256, 512, 1024, 2048]),
+#         # Lower level details
+#         "bidirectional": tune.choice([True, False]),
+#         "lstm_layers": tune.choice([1, 2]),
+#         "hidden_dim": tune.choice([128, 64, 32, 16, 8]),
+#         "lstm_output_dim": tune.randint(8, 133),
+#         "dropout_lstm": tune.uniform(0, 1),
+#         "dropout_lin": tune.uniform(0, 1),
+#         # Optmizer
+#         "opt_step_size": tune.randint(1, 20),
+#         "weight_decay": tune.loguniform(1e-5, 1e-2),
+#         # Problem specific
+#         "labels": ["main_y"],
+#         "classification_tasks": ["main_y"],
+#         "regression_tasks": [],
+#         "loss_fnct": [nn.BCEWithLogitsLoss],
+#         "weights": [1.],
+#         # loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
+#         # weight = [0.75, 0.25]
+#         "use_cnn": [True],
+#         "cnn_kernel_size": tune.randint(2, 11),
+#         "featset": featset,
+#         "data_path": exp,
+#     }
+#     run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus,
+#                          min_epochs=min_epochs, max_epochs=max_epochs)
+#
+#
+# # This needs to be the fullpath
+# do_parameter_tunning(MyNet,
+#                      "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
+#                      featset, ncpus=48, ngpus=1, ntrials=50, # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
+#                      exp_name="exp_cnnlstm_%s_%s" % (featset, exp),
+#                      min_epochs=1, max_epochs=50)
+
 # +
 # batch_size = 64
 # dropout_lstm = 0.87986
@@ -376,9 +430,19 @@ do_parameter_tunning(MyNet,
 
 
 # Run the same network several times
-# best_parameters = {"batch_size": 1024, "bidirectional": True, "dropout_lin": 0.087821,
-#                    "dropout_lstm": 0.87986, "hidden_dim": 128, "learning_rate": 0.00021999,
-#                    "lstm_layers": 2, "lstm_output_dim": 129, "monitor": "loss",
-#                    "opt_step_size": 15, "weight_decay": 0.00029587}
-#
-# results_MyNet_MP = eval_n_times(best_parameters, datafolder, 10, gpus=0, patience=3)
+
+p = "batch_size=256,bidirectional=False,cnn_kernel_size=3,dropout_lin=0.50716,dropout_lstm=0.75856,hidden_dim=8,learning_rate=0.00067346,lstm_layers=1,lstm_output_dim=125,opt_step_size=13,weight_decay=6.4359e-05"
+best_parameters = dict([e.split("=") for e in p.split(",")])
+best_parameters = dict([(i, ast.literal_eval(v)) for i, v in best_parameters.items()])
+
+best_parameters["labels"] = ['main_y']
+best_parameters["classification_tasks"] = ['main_y']
+best_parameters["regression_tasks"] = []
+best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss]
+best_parameters["weights"] = [1.0]
+best_parameters["use_cnn"] = True
+
+results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=3, gpus=0, patience=3)
+print(results_MyNet_MP)
+results_MyNet_MP.to_csv("final_result_nn.csv")
+
