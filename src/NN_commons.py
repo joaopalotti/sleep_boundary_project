@@ -222,7 +222,7 @@ class LSTMLayer(pl.LightningModule):
         x = x.view(x.shape[0], x.shape[1] // self.break_point, -1)
         x, hs = self.lstm(x, hs)
 
-        x = x.reshape(-1, self.hidden_dim)
+        x = x.reshape(x.shape[0], -1)
 
         for lay in self.linlayers:
             x = lay(x)
@@ -248,7 +248,6 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
     # Optmizer
     learning_rate = config["learning_rate"]
     opt_step_size = config["opt_step_size"]
-    weight_decay = config["weight_decay"]
 
     labels = config["labels"]
     classification_tasks = config["classification_tasks"]
@@ -256,16 +255,16 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
     weights = config["weights"]
     loss_fnct = config["loss_fnct"]
 
-    use_cnn = config["use_cnn"]
+    cnn_layers = config["cnn_layers"]
     cnn_kernel_size = config["cnn_kernel_size"]
 
     X, Y, test_pids = load_data(datafolder, featset)
 
-    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True,
+    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=int(batch_size), shuffle=True, drop_last=True,
                        num_workers=8)
-    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True,
+    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=int(batch_size), shuffle=False, drop_last=True,
                      num_workers=8)
-    test = DataLoader(myXYDataset(X["test"], Y["test"]), batch_size=batch_size, shuffle=False, drop_last=True,
+    test = DataLoader(myXYDataset(X["test"], Y["test"]), batch_size=int(batch_size), shuffle=False, drop_last=True,
                       num_workers=8)
 
     results = []
@@ -280,24 +279,23 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
         ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False,
                               monitor="loss", mode="min")
 
-        hparams = Namespace(batch_size=batch_size,
+        hparams = Namespace(batch_size=int(batch_size),
                             input_dim=X["train"].shape[1],
                             #
                             # Optmizer configs
                             #
-                            opt_learning_rate=learning_rate,
-                            opt_weight_decay=weight_decay,
-                            opt_step_size=opt_step_size,
+                            opt_learning_rate=float(learning_rate),
+                            opt_step_size=int(opt_step_size),
                             opt_gamma=0.5,
-                            use_cnn=use_cnn,
-                            cnn_kernel_size=cnn_kernel_size,
+                            cnn_layers=int(cnn_layers),
+                            cnn_kernel_size=int(cnn_kernel_size),
                             # LSTM configs
-                            hidden_dim=hidden_dim,
-                            bidirectional=bidirectional,
-                            lstm_layers=lstm_layers,
-                            lstm_output_dim=lstm_output_dim,
-                            dropout_lstm=dropout_lstm,
-                            dropout_lin=dropout_lin,
+                            hidden_dim=int(hidden_dim),
+                            bidirectional=bool(bidirectional),
+                            lstm_layers=int(lstm_layers),
+                            lstm_output_dim=int(lstm_output_dim),
+                            dropout_lstm=float(dropout_lstm),
+                            dropout_lin=float(dropout_lin),
                             #
                             labels=labels,
                             loss_fnct=loss_fnct,
@@ -333,7 +331,6 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     # Optmizer
     learning_rate = config["learning_rate"]
     opt_step_size = config["opt_step_size"]
-    weight_decay = config["weight_decay"]
 
     labels = config["labels"]
     classification_tasks = config["classification_tasks"]
@@ -341,7 +338,7 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     weights = config["weights"]
     loss_fnct = config["loss_fnct"]
 
-    use_cnn = config["use_cnn"]
+    cnn_layers = config["cnn_layers"]
     cnn_kernel_size = config["cnn_kernel_size"]
 
     X, Y, test_pids = load_data(datafolder, featset)
@@ -365,10 +362,9 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
                         # Optmizer configs
                         #
                         opt_learning_rate=learning_rate,
-                        opt_weight_decay=weight_decay,
                         opt_step_size=opt_step_size,
                         opt_gamma=0.5,
-                        use_cnn=use_cnn,
+                        cnn_layers=cnn_layers,
                         cnn_kernel_size=cnn_kernel_size,
                         # LSTM configs
                         hidden_dim=hidden_dim,
@@ -431,3 +427,4 @@ def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, n
     analysis.results_df.to_csv("all_results_exp%s_trials%d.csv" % (expname, ntrials))
     print("Best 5 results")
     print(analysis.results_df.sort_values(by="loss", ascending=False).head(5))
+    return analysis.best_result_df

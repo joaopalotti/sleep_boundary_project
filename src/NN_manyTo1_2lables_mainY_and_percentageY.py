@@ -18,11 +18,11 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 from NN_commons import calculate_regression_metrics, calculate_classification_metrics, LSTMLayer
-from NN_commons import data_exists, load_data, save_data, create_xy
+from NN_commons import data_exists, load_data, save_data, create_xy, eval_n_times
 from NN_commons import run_tuning_procedure
 from NN_commons import myXYDataset
 
-import os
+import os, sys
 import ast
 from argparse import Namespace
 import torch
@@ -58,7 +58,6 @@ class MyNet(pl.LightningModule):
 
         # Optimizer configs
         self.opt_learning_rate = hparams.opt_learning_rate
-        self.opt_weight_decay = hparams.opt_weight_decay
         self.opt_step_size = hparams.opt_step_size
         self.opt_gamma = hparams.opt_gamma
         self.dropout_lstm = hparams.dropout_lstm
@@ -70,17 +69,23 @@ class MyNet(pl.LightningModule):
         self.lstm_layers = hparams.lstm_layers
         self.lstm_output_dim = hparams.lstm_output_dim
         self.input_dim = hparams.input_dim
-        self.use_cnn = hparams.use_cnn
+        self.cnn_layers = hparams.cnn_layers
         self.cnn_kernel_size = hparams.cnn_kernel_size
 
         # Other configs
         self.batch_size = hparams.batch_size
 
-        if self.use_cnn:
-            self.cnn = nn.Sequential(OrderedDict([('cnn1', nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size, stride=1, padding="same")), 
-                                                 ('cnn2', nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size//2, stride=1, padding="same")),
-                                                 ('cnn3', nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size//4, stride=1, padding="same"))
-                                    ])) 
+        if self.cnn_layers > 0:
+            seqs = []
+            for i in range(self.cnn_layers):
+                kernel_size = self.cnn_kernel_size//(i+1)
+                kernel_size = 1 if kernel_size == 0 else kernel_size
+
+                seq = nn.Sequential(nn.Conv1d(1, 1, kernel_size=kernel_size, stride=1, padding="same"),
+                                    nn.BatchNorm1d(1), nn.ReLU(inplace=True))
+                seqs.append(seq)
+
+            self.cnn = nn.Sequential(*seqs)
 
 
         self.net = LSTMLayer(input_size=self.input_dim, break_point=self.input_dim,
@@ -112,7 +117,7 @@ class MyNet(pl.LightningModule):
 
     def init_hidden(self):
 
-        D = 2 if self.bidirectional else 1
+        D = 2 if self.bidirectional is True else 1
 
         h0 = torch.zeros(self.lstm_layers * D, self.batch_size, self.hidden_dim).double()
         c0 = torch.zeros(self.lstm_layers * D, self.batch_size, self.hidden_dim).double()
@@ -124,7 +129,7 @@ class MyNet(pl.LightningModule):
         return hidden
 
     def forward(self, x):
-        if self.use_cnn:
+        if self.cnn_layers > 0:
             x = x.unsqueeze(1)  # Reshape from (B,L) to (B, C=1, L)
             x = self.cnn(x)
             x = x.squeeze(1)  # Reshape it back to (B,L)
@@ -259,10 +264,14 @@ class MyNet(pl.LightningModule):
             print("(Test_%s) Epoch: %d, MAE: %.3f, MSE: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
 
-exp = "10min_centered"
+exp = sys.argv[1] # "20min_centered"
+featset = sys.argv[2] # "tsfresh"  # Options are [raw, tsfresh]
+
 datafolder = "../data/processed/train_test_splits/%s/" % exp
-featset = "tsfresh"  # Options are [raw, tsfresh]
-usecnn = True
+
+# exp_name ="exp_manyTo1_%s_%s" % (featset, exp),
+# exp_name = exp_name="exp_cnnlstm_%s_%s" % (featset, exp),
+exp_name = "exp_%s_%s_OneYMultipleCNN" % (featset, exp)
 
 if data_exists(datafolder, featset):
     print("Data already exist. Loading files from %s" % (datafolder))
@@ -288,13 +297,12 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
         "dropout_lin": tune.uniform(0, 1),
         # Optmizer
         "opt_step_size": tune.randint(1, 20),
-        "weight_decay": tune.loguniform(1e-5, 1e-2),
         # Version with two heads:
-        #"labels": ["main_y", "percentage_y"],
-        #"classification_tasks": ["main_y"],
-        #"regression_tasks": ["percentage_y"],
-        #"loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss],
-        #"weights": [0.90, 0.10],
+        # "labels": ["main_y", "percentage_y"],
+        # "classification_tasks": ["main_y"],
+        # "regression_tasks": ["percentage_y"],
+        # "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss],
+        # "weights": [0.90, 0.10],
         # Version with single head:
         "labels": ["main_y"],
         "classification_tasks": ["main_y"],
@@ -302,79 +310,61 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
         "loss_fnct": [nn.BCEWithLogitsLoss],
         "weights": [1.],
         #
-        "use_cnn": usecnn,
+        "cnn_layers":  tune.randint(1, 4),
         "cnn_kernel_size": tune.randint(2, 11),
         "featset": featset,
         "data_path": exp,
-    }
-    run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus,
-                         min_epochs=min_epochs, max_epochs=max_epochs)
+     }
+    return run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus,
+                                ngpus=ngpus, min_epochs=min_epochs, max_epochs=max_epochs)
 
 
 # This needs to be the fullpath
-do_parameter_tunning(MyNet,
+best_df = do_parameter_tunning(MyNet,
                      "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
-                     featset, ncpus=48, ngpus=1, ntrials=100, 
-                     # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
-                     exp_name="exp_%s_%s_2cnn%s" % (featset, exp, usecnn),
-                     min_epochs=1, max_epochs=50)
+                     # "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
+                     featset, ncpus=48, ngpus=1, ntrials=50, exp_name=exp_name, min_epochs=3, max_epochs=20)
 
-# def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
-#                          min_epochs=1, max_epochs=2):
-#     config = {
-#         # High level network configs
-#         "learning_rate": tune.loguniform(1e-6, 1e-1),
-#         "batch_size": tune.choice([32, 64, 128, 256, 512, 1024, 2048]),
-#         # Lower level details
-#         "bidirectional": tune.choice([True, False]),
-#         "lstm_layers": tune.choice([1, 2]),
-#         "hidden_dim": tune.choice([128, 64, 32, 16, 8]),
-#         "lstm_output_dim": tune.randint(8, 133),
-#         "dropout_lstm": tune.uniform(0, 1),
-#         "dropout_lin": tune.uniform(0, 1),
-#         # Optmizer
-#         "opt_step_size": tune.randint(1, 20),
-#         "weight_decay": tune.loguniform(1e-5, 1e-2),
-#         # Problem specific
-#         "labels": ["main_y"],
-#         "classification_tasks": ["main_y"],
-#         "regression_tasks": [],
-#         "loss_fnct": [nn.BCEWithLogitsLoss],
-#         "weights": [1.],
-#         # loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
-#         # weight = [0.75, 0.25]
-#         "use_cnn": [True],
-#         "cnn_kernel_size": tune.randint(2, 11),
-#         "featset": featset,
-#         "data_path": exp,
-#     }
-#     run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus,
-#                          min_epochs=min_epochs, max_epochs=max_epochs)
+keys = [k for k in best_df.keys() if "config." in k]
+best_parameters = {}
+for k in keys:
+    best_parameters[k.split("config.")[1]] = best_df[k].iloc[0]
+
+print("Final evaluation:")
+results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=10, gpus=1, patience=5)
+print(results_MyNet_MP)
+results_MyNet_MP.to_csv("final_%s.csv" % (exp_name))
+
+# p = "batch_size=256,bidirectional=False,cnn_kernel_size=3,dropout_lin=0.50716,dropout_lstm=0.75856,hidden_dim=8,learning_rate=0.00067346,lstm_layers=1,lstm_output_dim=125,opt_step_size=13"
+# best_parameters = dict([e.split("=") for e in p.split(",")])
+# best_parameters = dict([(i, ast.literal_eval(v)) for i, v in best_parameters.items()])
 #
+# best_parameters["labels"] = ['main_y']
+# best_parameters["classification_tasks"] = ['main_y']
+# best_parameters["regression_tasks"] = []
+# best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss]
+# best_parameters["weights"] = [1.0]
 #
-# # This needs to be the fullpath
-# do_parameter_tunning(MyNet,
-#                      "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
-#                      featset, ncpus=48, ngpus=1, ntrials=50, # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
-#                      exp_name="exp_cnnlstm_%s_%s" % (featset, exp),
-#                      min_epochs=1, max_epochs=50)
+# results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=3, gpus=0, patience=3)
+# print(results_MyNet_MP)
+# results_MyNet_MP.to_csv("final_result_nn.csv")
+
 
 # +
 # batch_size = 64
 # dropout_lstm = 0.87986
 # dropout_lin = 0.087821
 # learning_rate = 0.00021999
-# weight_decay = 0.00029587
 # opt_step_size = 15
-# hidden_dim = 128
-# bidirectional = False
-# lstm_layers = 2
-# lstm_output_dim = 129
-# use_cnn = True
-# cnn_kernel_size = 5
+# hidden_dim = 32
+# bidirectional = True
+# lstm_layers = 1
+# lstm_output_dim = 32
+# cnn_layers = 3
+# cnn_kernel_size = 7
 #
-# labels = ["main_y"] # , "percentage_y"]
-# regression_tasks = [] # ["percentage_y"]
+# labels = ["main_y", "percentage_y"]
+# regression_tasks = ["percentage_y"]
 # classification_tasks = ["main_y"]
 # loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
 # weights = [0.75, 0.25]
@@ -383,13 +373,12 @@ do_parameter_tunning(MyNet,
 #                     dropout_lstm=dropout_lstm,
 #                     dropout_lin=dropout_lin,
 #                     input_dim=X["train"].shape[1],
-#                     use_cnn=use_cnn,
+#                     cnn_layers=cnn_layers,
 #                     cnn_kernel_size=cnn_kernel_size,
 #                     #
 #                     # Optmizer configs
 #                     #
 #                     opt_learning_rate=learning_rate,
-#                     opt_weight_decay=weight_decay,
 #                     opt_step_size=opt_step_size,
 #                     opt_gamma=0.5,
 #                     # LSTM configs
@@ -430,19 +419,17 @@ do_parameter_tunning(MyNet,
 
 
 # Run the same network several times
-
-p = "batch_size=256,bidirectional=False,cnn_kernel_size=3,dropout_lin=0.50716,dropout_lstm=0.75856,hidden_dim=8,learning_rate=0.00067346,lstm_layers=1,lstm_output_dim=125,opt_step_size=13,weight_decay=6.4359e-05"
-best_parameters = dict([e.split("=") for e in p.split(",")])
-best_parameters = dict([(i, ast.literal_eval(v)) for i, v in best_parameters.items()])
-
-best_parameters["labels"] = ['main_y']
-best_parameters["classification_tasks"] = ['main_y']
-best_parameters["regression_tasks"] = []
-best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss]
-best_parameters["weights"] = [1.0]
-best_parameters["use_cnn"] = True
-
-results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=3, gpus=0, patience=3)
-print(results_MyNet_MP)
-results_MyNet_MP.to_csv("final_result_nn.csv")
-
+# p = "batch_size=256,bidirectional=False,cnn_kernel_size=3,dropout_lin=0.50716,dropout_lstm=0.75856,hidden_dim=8,learning_rate=0.00067346,lstm_layers=1,lstm_output_dim=125,opt_step_size=13"
+# best_parameters = dict([e.split("=") for e in p.split(",")])
+# best_parameters = dict([(i, ast.literal_eval(v)) for i, v in best_parameters.items()])
+#
+# best_parameters["labels"] = ['main_y']
+# best_parameters["classification_tasks"] = ['main_y']
+# best_parameters["regression_tasks"] = []
+# best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss]
+# best_parameters["weights"] = [1.0]
+# best_parameters["cnn_layers"] = True
+#
+# results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=3, gpus=0, patience=3)
+# print(results_MyNet_MP)
+# results_MyNet_MP.to_csv("final_result_nn.csv")
