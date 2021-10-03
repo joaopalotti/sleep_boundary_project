@@ -225,13 +225,21 @@ class LSTMLayer(pl.LightningModule):
 
         self.last_lin = nn.Sequential(nn.Linear(last_d, output_dim), nn.ReLU(inplace=True))
         self.break_point = break_point
-
-    def forward(self, x):
+        
+        
+    # I did not find a way to make 'many_to_many' variabale initializeing while initializing hyperparameters
+    def forward(self, x, many_to_many = False):
         x = x.view(x.shape[0], x.shape[1] // self.break_point, -1)
+        
+        if(many_to_many == True):
+            hidden = self.init_hidden()
+            x, hidden = self.lstm(x, hidden)
+            
+            
+        else:
+            x, _ = self.lstm(x)
 
-        x, _ = self.lstm(x)
-
-        # x, (self.hn, self.cn) = self.lstm(x, (self.hn, self.cn))
+            # x, (self.hn, self.cn) = self.lstm(x, (self.hn, self.cn))
         x = x.reshape(x.shape[0], -1)
 
         for lay in self.linlayers:
@@ -239,9 +247,21 @@ class LSTMLayer(pl.LightningModule):
 
         x = self.last_lin(x)
         return x
+    
+    def init_hidden(self):
+
+        h0 = torch.zeros(self.num_layers*2, self.hidden_dim, self.output_dim-1).double()
+        c0 = torch.zeros(self.num_layers*2, self.hidden_dim, self.output_dim-1).double()
+
+        nn.init.xavier_normal_(h0)
+        nn.init.xavier_normal_(c0)
+        hidden = (h0,c0)
+        
+        return hidden
 
 
-# +
+# -
+
 def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_epochs=2, max_epochs=20):
     # High level network configs
     batch_size = config["batch_size"]
@@ -327,7 +347,6 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
     return pd.DataFrame(results)
 
 
-# +
 def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_per_node=0):
     # High level network configs
     batch_size = config["batch_size"]
@@ -414,8 +433,6 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     trainer.fit(model, train, val)
 
 
-# -
-
 def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, ncpus, ngpus,
                          min_epochs=1,
                          max_epochs=20):
@@ -441,3 +458,7 @@ def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, n
     analysis.results_df.to_csv("all_results_exp%s_trials%d.csv" % (expname, ntrials))
     print("Best 5 results")
     print(analysis.results_df.sort_values(by="loss", ascending=False).head(5))
+
+
+
+
