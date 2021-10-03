@@ -19,7 +19,7 @@ import pandas as pd
 pd.set_option('display.max_rows', 20)
 
 import numpy as np
-import os
+import os, sys
 from tqdm import tqdm
 from glob import glob
 
@@ -32,7 +32,7 @@ from sklearn.model_selection import KFold
 def pycater_setup(train_data, test_data,
                   gt_label="label_5min",
                   ignore_feat=["id", "fold", "linetime", "activity", "gt_time"],
-                  use_gpu=False):
+                  use_gpu=False, n_jobs=-1):
     if "percentage_ground_truth" in train_data:
         ignore_feat.append("percentage_ground_truth")
 
@@ -47,23 +47,25 @@ def pycater_setup(train_data, test_data,
                        # remove_outliers = True,
                        polynomial_features=True,
                        # fix_imbalance = True,
-                       n_jobs=10
+                       n_jobs=n_jobs
                        )
     return experiment
 
 
-exp = "40min_centered"
-featset = "tsfresh"
+exp = "%s" % sys.argv[1]
+featset = sys.argv[2] # "tsfresh", "raw"
+n_jobs = int(sys.argv[3])
+
 datapath = "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp)
 print("Running with %s %s %s" % (exp, featset, datapath))
 
 train_data = pd.read_csv(os.path.join(datapath, "train_%s_data.csv.gz" % featset))
 test_data = pd.read_csv(os.path.join(datapath, "test_%s_data.csv.gz" % featset))
 
-experiment = pycater_setup(train_data, test_data, gt_label="ground_truth", ignore_feat=["pid", "fold"])
+experiment = pycater_setup(train_data, test_data, gt_label="ground_truth", ignore_feat=["pid", "fold"], use_gpu=True, n_jobs=n_jobs)
 
 # +
-for m in tqdm(["lr", "rf", "et", "lda", "catboost", "lightgbm"]):
+for m in tqdm(["lightgbm"]): # tqdm(["lr", "rf", "et", "lda", "lightgbm"]):
     experiment_filename = "sleep_ml_%s_%s_%s" % (m, exp, featset)
     print("Creating a %s model." % m)
     model = create_model(m)
