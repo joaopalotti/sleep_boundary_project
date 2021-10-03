@@ -76,7 +76,11 @@ class MyNet(pl.LightningModule):
         self.batch_size = hparams.batch_size
 
         if self.use_cnn:
-            self.cnn = nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size, stride=1, padding="same")
+            self.cnn = nn.Sequential(OrderedDict([('cnn1', nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size, stride=1, padding="same")), 
+                                                 ('cnn2', nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size//2, stride=1, padding="same")),
+                                                 ('cnn3', nn.Conv1d(1, 1, kernel_size=self.cnn_kernel_size//4, stride=1, padding="same"))
+                                    ])) 
+
 
         self.net = LSTMLayer(input_size=self.input_dim, break_point=self.input_dim,
                              dropout_lstm=self.dropout_lstm,
@@ -243,7 +247,8 @@ class MyNet(pl.LightningModule):
 
 exp = "10min_centered"
 datafolder = "../data/processed/train_test_splits/%s/" % exp
-featset = "raw"  # Options are [raw, tsfresh]
+featset = "tsfresh"  # Options are [raw, tsfresh]
+usecnn = True
 
 if data_exists(datafolder, featset):
     print("Data already exist. Loading files from %s" % (datafolder))
@@ -259,27 +264,34 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
     config = {
         # High level network configs
         "learning_rate": tune.loguniform(1e-6, 1e-1),
-        "batch_size": tune.choice([32, 64, 128, 256, 512, 1024, 2048]),
+        "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
         # Lower level details
         "bidirectional": tune.choice([True, False]),
         "lstm_layers": tune.choice([1, 2]),
         "hidden_dim": tune.choice([128, 64, 32, 16, 8]),
-        "lstm_output_dim": tune.randint(8, 133),
+        "lstm_output_dim": tune.randint(8, 256),
         "dropout_lstm": tune.uniform(0, 1),
         "dropout_lin": tune.uniform(0, 1),
         # Optmizer
         "opt_step_size": tune.randint(1, 20),
         "weight_decay": tune.loguniform(1e-5, 1e-2),
-        # Problem specific
+        # Version with two heads:
+        #"labels": ["main_y", "percentage_y"],
+        #"classification_tasks": ["main_y"],
+        #"regression_tasks": ["percentage_y"],
+        #"loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss],
+        #"weights": [0.90, 0.10],
+        # Version with single head:
         "labels": ["main_y"],
         "classification_tasks": ["main_y"],
         "regression_tasks": [],
         "loss_fnct": [nn.BCEWithLogitsLoss],
         "weights": [1.],
-        # loss_fnct = [nn.BCEWithLogitsLoss, nn.L1Loss]
-        # weight = [0.75, 0.25]
-        "use_cnn": [True],
+        #
+        "use_cnn": usecnn,
         "cnn_kernel_size": tune.randint(2, 11),
+        "featset": featset,
+        "data_path": exp,
     }
     run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, ngpus=ngpus,
                          min_epochs=min_epochs, max_epochs=max_epochs)
@@ -288,8 +300,9 @@ def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=
 # This needs to be the fullpath
 do_parameter_tunning(MyNet,
                      "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
-                     featset, ncpus=48, ngpus=1, ntrials=50, # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
-                     exp_name="exp_cnnlstm_%s_%s" % (featset, exp),
+                     featset, ncpus=48, ngpus=1, ntrials=100, 
+                     # exp_name="exp_manyTo1_%s_%s" % (featset, exp),
+                     exp_name="exp_%s_%s_2cnn%s" % (featset, exp, usecnn),
                      min_epochs=1, max_epochs=50)
 
 # +
