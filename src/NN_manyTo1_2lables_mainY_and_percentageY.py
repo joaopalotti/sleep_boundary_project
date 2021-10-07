@@ -42,6 +42,11 @@ from collections import OrderedDict
 from datetime import datetime
 
 # +
+def get_env_var(varname, default):
+    return int(os.environ.get(varname)) if os.environ.get(varname) is not None else default
+
+def chunks(l, n):
+    return [l[i:i+n] for i in range(0, len(l), max(1, n))]
 
 class MyNet(pl.LightningModule):
 
@@ -52,7 +57,7 @@ class MyNet(pl.LightningModule):
         self.timestamp = datetime.now()
         self.labels = hparams.labels
         self.loss_fnct = hparams.loss_fnct
-        self.weights = hparams.weights
+        self.main_weight = hparams.main_weight
         self.regression_tasks = hparams.regression_tasks
         self.classification_tasks = hparams.classification_tasks
 
@@ -165,9 +170,9 @@ class MyNet(pl.LightningModule):
             losses.append(v)
             self.log('%s_loss' % l, v)
 
-        final_loss = 0
-        for i in range(len(self.labels)):
-            final_loss = final_loss + (losses[i] * self.weights[i])
+        final_loss = losses[0] * self.main_weight
+        if len(self.labels) > 1:
+            final_loss += (losses[1] * (1.0 - self.main_weight))
 
         return final_loss
 
@@ -264,76 +269,116 @@ class MyNet(pl.LightningModule):
             print("(Test_%s) Epoch: %d, MAE: %.3f, MSE: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
 
-exp = sys.argv[1] # "20min_centered"
-featset = sys.argv[2] # "tsfresh"  # Options are [raw, tsfresh]
-
-datafolder = "../data/processed/train_test_splits/%s/" % exp
-
-# exp_name ="exp_manyTo1_%s_%s" % (featset, exp),
-# exp_name = exp_name="exp_cnnlstm_%s_%s" % (featset, exp),
-exp_name = "exp_%s_%s_OneYMultipleCNN" % (featset, exp)
-
-if data_exists(datafolder, featset):
-    print("Data already exist. Loading files from %s" % (datafolder))
-    X, Y, test_pids = load_data(datafolder, featset)
-else:
-    X, Y, test_pids = create_xy(os.path.join(datafolder, "train_%s_data.csv.gz" % (featset)),
-                                os.path.join(datafolder, "test_%s_data.csv.gz" % (featset)), use_gpu=True)
-    save_data(datafolder, X, Y, test_pids, featset)
-
-
-def do_parameter_tunning(mynet, datafolder, featset, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
+def do_parameter_tunning(mynet, datafolder, featset, config, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
                          min_epochs=1, max_epochs=2):
-    config = {
-        # High level network configs
-        "learning_rate": tune.loguniform(1e-6, 1e-1),
-        "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
-        # Lower level details
-        "bidirectional": tune.choice([True, False]),
-        "lstm_layers": tune.choice([1, 2]),
-        "hidden_dim": tune.choice([128, 64, 32, 16, 8]),
-        "lstm_output_dim": tune.randint(8, 256),
-        "dropout_lstm": tune.uniform(0, 1),
-        "dropout_lin": tune.uniform(0, 1),
-        # Optmizer
-        "opt_step_size": tune.randint(1, 20),
-        # Version with two heads:
-        # "labels": ["main_y", "percentage_y"],
-        # "classification_tasks": ["main_y"],
-        # "regression_tasks": ["percentage_y"],
-        # "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss],
-        # "weights": [0.90, 0.10],
-        # Version with single head:
-        "labels": ["main_y"],
-        "classification_tasks": ["main_y"],
-        "regression_tasks": [],
-        "loss_fnct": [nn.BCEWithLogitsLoss],
-        "weights": [1.],
-        #
-        "cnn_layers":  tune.randint(1, 4),
-        "cnn_kernel_size": tune.randint(2, 11),
-        "featset": featset,
-        "data_path": exp,
-     }
+
     return run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus,
                                 ngpus=ngpus, min_epochs=min_epochs, max_epochs=max_epochs)
 
 
-# This needs to be the fullpath
-best_df = do_parameter_tunning(MyNet,
-                     "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
-                     # "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (exp),
-                     featset, ncpus=48, ngpus=1, ntrials=50, exp_name=exp_name, min_epochs=3, max_epochs=20)
 
-keys = [k for k in best_df.keys() if "config." in k]
-best_parameters = {}
-for k in keys:
-    best_parameters[k.split("config.")[1]] = best_df[k].iloc[0]
+if __name__ == "__main__":
 
-print("Final evaluation:")
-results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=10, gpus=1, patience=5)
-print(results_MyNet_MP)
-results_MyNet_MP.to_csv("final_%s.csv" % (exp_name))
+    NCPUS = 12
+    NGPUS = 1
+    NTRIALS = 1
+    MIN_EPOCHS = 3
+    MAX_EPOCHS = 50
+    SLURM_JOB_ID = get_env_var('SLURM_JOB_ID', 0)
+    SLURM_ARRAY_TASK_ID = get_env_var('SLURM_ARRAY_TASK_ID', 0)
+    SLURM_ARRAY_TASK_COUNT = get_env_var('SLURM_ARRAY_TASK_COUNT', 1)
+
+    configs = {}
+    configs["twohead"] = {
+        # High level network configs
+        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
+        # Lower level details
+        "bidirectional": tune.choice([True, False]), "lstm_layers": tune.choice([1, 2]),
+        "hidden_dim": tune.choice([128, 64, 32, 16, 8]), "lstm_output_dim": tune.randint(8, 256),
+        "dropout_lstm": tune.uniform(0, 1), "dropout_lin": tune.uniform(0, 1),
+        # Optmizer
+        "opt_step_size": tune.randint(1, 20),
+        # Version with two heads:
+        "labels": ["main_y", "percentage_y"], "classification_tasks": ["main_y"], "regression_tasks": ["percentage_y"],
+        "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss], "main_weight": tune.uniform(0, 1),
+        #
+        "cnn_layers":  tune.randint(1, 4), "cnn_kernel_size": tune.randint(2, 11)
+     }
+
+    configs["onehead"] = {
+        # High level network configs
+        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
+        # Lower level details
+        "bidirectional": tune.choice([True, False]), "lstm_layers": tune.choice([1, 2]),
+        "hidden_dim": tune.choice([128, 64, 32, 16, 8]), "lstm_output_dim": tune.randint(8, 256),
+        "dropout_lstm": tune.uniform(0, 1), "dropout_lin": tune.uniform(0, 1),
+        # Optmizer
+        "opt_step_size": tune.randint(1, 20), "labels": ["main_y"],
+        "classification_tasks": ["main_y"], "regression_tasks": [],
+        "loss_fnct": [nn.BCEWithLogitsLoss], "main_weight": 1.,
+        #
+        "cnn_layers": tune.randint(1, 4), "cnn_kernel_size": tune.randint(2, 11),
+    }
+
+    combinations = []
+    for nheads in ["onehead", "twoheads"]:
+        for win in ["10min_centered", "20min_centered", "40min_centered", "10min_notcentered",
+                    "20min_notcentered", "40min_notcentered"]:
+            for featset in ["raw", "tsfresh"]:
+                combinations.append((nheads, win, featset))
+
+    selected_combinations = chunks(combinations, SLURM_ARRAY_TASK_COUNT)[SLURM_ARRAY_TASK_ID]
+
+    for comb in selected_combinations:
+        nheads, win, featset = comb
+        config = configs[nheads]
+
+        datafolder = "../data/processed/train_test_splits/%s/" % win
+
+        exp_name = "exp_%s_%s_%s_n%d" % (nheads, featset, win, NTRIALS)
+
+        if data_exists(datafolder, featset):
+            print("Data already exist. Loading files from %s" % datafolder)
+            X, Y, test_pids = load_data(datafolder, featset)
+        else:
+            X, Y, test_pids = create_xy(os.path.join(datafolder, "train_%s_data.csv.gz" % (featset)),
+                                        os.path.join(datafolder, "test_%s_data.csv.gz" % (featset)), use_gpu=True)
+            save_data(datafolder, X, Y, test_pids, featset)
+
+        # This needs to be the fullpath
+        best_df = do_parameter_tunning(MyNet,
+                        # "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
+                        "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
+                        featset, config=config, ncpus=NCPUS, ngpus=NGPUS, ntrials=NTRIALS, exp_name=exp_name,
+                        min_epochs=MIN_EPOCHS, max_epochs=MAX_EPOCHS)
+
+        keys = [k for k in best_df.keys() if "config." in k]
+        best_parameters = {}
+        for k in keys:
+            best_parameters[k.split("config.")[1]] = best_df[k].iloc[0]
+
+        if nheads == "onehead":
+            best_parameters["labels"] = ['main_y']
+            best_parameters["classification_tasks"] = ['main_y']
+            best_parameters["regression_tasks"] = []
+            best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss]
+            best_parameters["main_weight"] = 1.0
+        else:
+            best_parameters["labels"] = ["main_y", "percentage_y"]
+            best_parameters["classification_tasks"] = ['main_y']
+            best_parameters["regression_tasks"] = ["percentage_y"],
+            best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.L1Loss]
+            # best_parameters["main_weight"] = 1.0
+
+        print("Final evaluation:")
+        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=1, gpus=0, patience=10)
+        print(results_MyNet_MP)
+        results_MyNet_MP["heads"] = nheads
+        results_MyNet_MP["win"] = win
+        results_MyNet_MP["featset"] = featset
+        results_MyNet_MP["exp_name"] = exp_name
+        results_MyNet_MP.to_csv("final_%s.csv" % exp_name)
+
 
 # p = "batch_size=256,bidirectional=False,cnn_kernel_size=3,dropout_lin=0.50716,dropout_lstm=0.75856,hidden_dim=8,learning_rate=0.00067346,lstm_layers=1,lstm_output_dim=125,opt_step_size=13"
 # best_parameters = dict([e.split("=") for e in p.split(",")])

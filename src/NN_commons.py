@@ -252,7 +252,7 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
     labels = config["labels"]
     classification_tasks = config["classification_tasks"]
     regression_tasks = config["regression_tasks"]
-    weights = config["weights"]
+    main_weight = config["main_weight"]
     loss_fnct = config["loss_fnct"]
 
     cnn_layers = config["cnn_layers"]
@@ -301,7 +301,7 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
                             loss_fnct=loss_fnct,
                             regression_tasks=regression_tasks,
                             classification_tasks=classification_tasks,
-                            weights=weights,
+                            main_weight=main_weight,
                             )
 
         model = MyNet(hparams)
@@ -335,7 +335,7 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     labels = config["labels"]
     classification_tasks = config["classification_tasks"]
     regression_tasks = config["regression_tasks"]
-    weights = config["weights"]
+    main_weight = config["main_weight"]
     loss_fnct = config["loss_fnct"]
 
     cnn_layers = config["cnn_layers"]
@@ -378,7 +378,7 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
                         loss_fnct=loss_fnct,
                         regression_tasks=regression_tasks,
                         classification_tasks=classification_tasks,
-                        weights=weights,
+                        main_weight=main_weight,
                         )
 
     model = MyNet(hparams)
