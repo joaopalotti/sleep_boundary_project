@@ -178,7 +178,7 @@ def data_exists(datafolder):
     return True
 
 
-def save_data(output_folder, transformed_df, df_labels, label_times, pids):
+def save_data(output_folder, transformed_df, df_labels):
     transformed_df.to_csv(os.path.join(output_folder, "transformed_df.csv.gz"), index=False)
     df_labels.to_csv(os.path.join(output_folder, "df_labels.csv.gz"), index=False)
     df_label_times.to_csv(os.path.join(output_folder, "df_label_times.csv.gz"), index=False)
@@ -231,7 +231,6 @@ ext_settings = {
                                      itertools.product(["real", "imag", "abs", "angle"], range(10))],
                  "fourier_entropy": [{"bins": x} for x in [2, 3, 5, 10, 100]],
                  },
-
     "mean_hr": {"cwt_coefficients": [{"widths": width, "coeff": coeff, "w": w} for
                                      width in [(2, 5, 10, 20)] for coeff in range(15) for w in (2, 5, 10, 20)],
                 "number_cwt_peaks": [{"n": n} for n in [1, 5]],
@@ -319,10 +318,7 @@ for winsize_in_minutes in [10, 20, 40]:
         delta_str = convert_str_time(-winsize_in_minutes // 2) if centered else "0h00t"
 
         train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
-        #         train_test_output_path = "../data/Temporary_output-feature-extraction"
-
         feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
-        #         feature_extration_datapath = '/Users/fatemeh/Sleep Project/4_Sleep Boundary/sleep_boundary_project/data/feature_extraction_10m_centered'
 
         if not os.path.exists(feature_extration_datapath):
             os.mkdir(feature_extration_datapath)
@@ -344,6 +340,7 @@ for winsize_in_minutes in [10, 20, 40]:
             save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
 
         else:
+            print("Dont need to generate timeseries dfs. Data was saved. Loading it.... ")
             transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
 
         # Extract raw features
@@ -351,16 +348,24 @@ for winsize_in_minutes in [10, 20, 40]:
 
         feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
 
+        print("Checking for %s" % feature_extracted)
+
         if not os.path.exists(feature_extracted):
             print("Extracting features...")
-            extracted_features = tsfresh.extract_relevant_features(
+            # extracted_features = tsfresh.extract_relevant_features(
+            #     transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
+            #     df_labels["ground_truth"],
+            #     column_id="seq_id", column_sort="hyp_time_col",
+            #     disable_progressbar=True,
+            #     default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+            extracted_features = tsfresh.extract_features(
                 transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
                 df_labels["ground_truth"],
                 column_id="seq_id", column_sort="hyp_time_col",
                 disable_progressbar=True,
                 default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+            extracted_features = extracted_features.sort_index(axis=1)
             extracted_features.to_csv(feature_extracted, index=False)
-
         else:
             print("Reading extracted features from file '%s'..." % feature_extracted)
             extracted_features = pd.read_csv(feature_extracted)
@@ -374,8 +379,10 @@ for winsize_in_minutes in [10, 20, 40]:
         tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
                                   df_label_times.reset_index(drop=True),
                                   df_labels.reset_index(drop=True),
+                                  df_time_sin.reset_index(drop=True),
+                                  df_time_cos.reset_index(drop=True),
                                   extracted_features.reset_index(drop=True),
-                                  df_time_sin.reset_index(drop=True), df_time_cos.reset_index(drop=True)], axis=1)
+                                  ], axis=1)
 
         raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
                               df_label_times.reset_index(drop=True),
