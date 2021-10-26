@@ -222,7 +222,14 @@ ext_settings = {
                  "number_cwt_peaks": [{"n": n} for n in [1, 5]],
                  "sum_values": None,
                  "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
-                 "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
+                 "kurtosis": None, "skewness": None, "abs_energy": None, "absolute_maximum": None,
+                 "absolute_sum_of_changes": None, "mean": None, "median": None, "standard_deviation": None,
+                 "mean_abs_change": None, "mean_change": None, "root_mean_square": None,
+                 "percentage_of_reoccurring_datapoints_to_all_datapoints": None,
+                 "percentage_of_reoccurring_values_to_all_values": None,
+                 "sum_values": None, "variance": None, "variation_coefficient": None,
+                 "variance_larger_than_standard_deviation": None,
+                 "linear_trend": [{"attr": "pvalue"}, {"attr": "rvalue"}, {"attr": "intercept"}, {"attr": "slope"}, {"attr": "stderr"}],
                  "root_mean_square": None,
                  "maximum": None,
                  "minimum": None,
@@ -236,7 +243,15 @@ ext_settings = {
                 "number_cwt_peaks": [{"n": n} for n in [1, 5]],
                 "sum_values": None,
                 "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
-                "large_standard_deviation": [{"r": r * 0.05} for r in range(1, 20)],
+                "kurtosis": None, "skewness": None, "abs_energy": None, "absolute_maximum": None,
+                "absolute_sum_of_changes": None, "mean": None, "median": None, "standard_deviation": None,
+                "mean_abs_change": None, "mean_change": None, "root_mean_square": None,
+                "percentage_of_reoccurring_datapoints_to_all_datapoints": None,
+                "percentage_of_reoccurring_values_to_all_values": None,
+                "sum_values": None, "variance": None, "variation_coefficient": None,
+                "variance_larger_than_standard_deviation": None,
+                "linear_trend": [{"attr": "pvalue"}, {"attr": "rvalue"}, {"attr": "intercept"}, {"attr": "slope"},
+                                 {"attr": "stderr"}],
                 "root_mean_square": None,
                 "maximum": None,
                 "minimum": None,
@@ -345,7 +360,6 @@ for winsize_in_minutes in [10, 20, 40]:
 
         # Extract raw features
         raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
-
         feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
 
         print("Checking for %s" % feature_extracted)
@@ -360,7 +374,6 @@ for winsize_in_minutes in [10, 20, 40]:
             #     default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
             extracted_features = tsfresh.extract_features(
                 transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
-                df_labels["ground_truth"],
                 column_id="seq_id", column_sort="hyp_time_col",
                 disable_progressbar=True,
                 default_fc_parameters={}, kind_to_fc_parameters=ext_settings)

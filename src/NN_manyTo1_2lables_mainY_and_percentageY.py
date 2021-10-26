@@ -18,9 +18,8 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 from NN_commons import calculate_regression_metrics, calculate_classification_metrics, LSTMLayer
-from NN_commons import data_exists, load_data, save_data, create_xy, eval_n_times
-from NN_commons import run_tuning_procedure
-from NN_commons import myXYDataset
+from NN_commons import run_tuning_procedure, eval_n_times
+from data_commons import load_data
 
 import os, sys
 import ast
