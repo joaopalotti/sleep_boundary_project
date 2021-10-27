@@ -45,22 +45,24 @@ def pycater_setup(train_data, test_data,
 
     experiment = setup(data=train_data, test_data=test_data,
                        target=gt_label, session_id=123,
-                       normalize=True, transformation=True,
-                       fold_strategy="groupkfold", fold_groups="fold",
+                       normalize=True,
+                       transformation=False,
+                       fold_strategy="groupkfold",
+                       fold_groups="fold",
                        ignore_features=ignore_feat,
-                       silent=True, use_gpu=use_gpu,
-                       # normalize_method = 'zscore',
+                       silent=True,
+                       use_gpu=use_gpu,
                        normalize_method='robust',
-                       # remove_outliers = True,
-                       # polynomial_features=True,
-                       # fix_imbalance = True,
+                       remove_outliers = False,
+                       polynomial_features=False,
+                       fix_imbalance = False,
                        n_jobs=n_jobs
                        )
     return experiment
 
 
 if __name__ == "__main__":
-    
+
     NCPUS = get_env_var('SLURM_CPUS_PER_TASK', 12)
     NGPUS = 1
     NTRIALS = 20
@@ -83,7 +85,7 @@ if __name__ == "__main__":
 
     for comb in selected_combinations:
         m, win, featset = comb
- 
+
         #exp = "%s" % sys.argv[1] #10min_centered, 10min_notcentered...
         #featset = sys.argv[2] # "tsfresh", "raw"
         #n_jobs = int(sys.argv[3])

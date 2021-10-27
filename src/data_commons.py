@@ -2,6 +2,14 @@ import os
 import pandas as pd
 from pycaret.classification import *
 
+def get_env_var(varname, default):
+    return int(os.environ.get(varname)) if os.environ.get(varname) is not None else default
+
+def chunks(l, n):
+    n = len(l) // n
+    return [l[i:i + n] for i in range(0, len(l), max(1, n))]
+
+
 def data_exists(datafolder, suffix):
     if not os.path.exists(datafolder):
         return False
@@ -16,14 +24,17 @@ def pycater_setup(train_data, test_data,
                   gt_label="label_5min",
                   ignore_feat=["id", "fold", "linetime", "activity", "percentage_ground_truth"],
                   use_gpu=False):
+
+    numeric_features = list(set(train_data.keys()) - set(ignore_feat) - set([gt_label]))
     experiment = setup(data=train_data, test_data=test_data,
                        target=gt_label, session_id=123,
-                       normalize=True, transformation=True,
+                       normalize=True, transformation=False,
                        fold_strategy="groupkfold", fold_groups="fold",
                        ignore_features=ignore_feat,
-                       silent=True, use_gpu=use_gpu,
+                       silent=False, use_gpu=use_gpu,
                        normalize_method='robust',
                        polynomial_features=False,
+                       numeric_features=numeric_features,
                        remove_perfect_collinearity=False,
                        )
     return experiment
@@ -39,6 +50,7 @@ def create_xy(train_path="train_data.csv.gz", test_path="test_data.csv.gz", use_
     features_to_ignore = ["pid", "fold", "gt_time",
                           "percentage_ground_truth"] if "percentage_ground_truth" in train_data else ["pid", "fold",
                                                                                                       "gt_time"]
+    features_to_ignore += ["time_sin", "time_cos"]
 
     experiment = pycater_setup(train_data, test_data,
                                gt_label="ground_truth",
@@ -111,18 +123,30 @@ def load_data(datafolder, featset):
 
 if __name__ == "__main__":
 
+    combinations = []
     for win in ["10min_centered", "20min_centered", "40min_centered", "10min_notcentered",
                     "20min_notcentered", "40min_notcentered"]:
         for featset in ["tsfresh", "raw"]:
+            combinations.append([win, featset])
 
-            datafolder = "../data/processed/train_test_splits/%s/" % win
+    SLURM_JOB_ID = get_env_var('SLURM_JOB_ID', 0)
+    SLURM_ARRAY_TASK_ID = get_env_var('SLURM_ARRAY_TASK_ID', 0)
+    SLURM_ARRAY_TASK_COUNT = get_env_var('SLURM_ARRAY_TASK_COUNT', 1)
 
-            if data_exists(datafolder, featset):
-                print("Data already exist. Loading files from %s" % datafolder)
-                X, Y, test_pids = load_data(datafolder, featset)
-                # TODO: have code for lstm working fine.
-            else:
-                print("Creating data....Win: %s, Featset: %s" % (win, featset))
-                X, Y, test_pids = create_xy(os.path.join(datafolder, "train_%s_data.csv.gz" % (featset)),
-                                            os.path.join(datafolder, "test_%s_data.csv.gz" % featset), use_gpu=True)
-                save_data(datafolder, X, Y, test_pids, featset)
+    print("Total combinations:", len(combinations))
+    print("All combinations:", combinations)
+    selected_combinations = chunks(combinations, SLURM_ARRAY_TASK_COUNT)[SLURM_ARRAY_TASK_ID]
+    print("Processing: ", selected_combinations)
+
+
+    for combination in selected_combinations:
+        win, featset = combination
+        datafolder = "../data/processed/train_test_splits/%s/" % win
+
+        if data_exists(datafolder, featset):
+            print("Data already exist at %s. We are done!" % datafolder)
+        else:
+            print("Creating data....Win: %s, Featset: %s" % (win, featset))
+            X, Y, test_pids = create_xy(os.path.join(datafolder, "train_%s_data.csv.gz" % (featset)),
+                                        os.path.join(datafolder, "test_%s_data.csv.gz" % featset), use_gpu=True)
+            save_data(datafolder, X, Y, test_pids, featset)
