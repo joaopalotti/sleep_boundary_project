@@ -96,7 +96,9 @@ if __name__ == "__main__":
         train_data = pd.read_csv(os.path.join(datapath, "train_%s_data.csv.gz" % featset))
         test_data = pd.read_csv(os.path.join(datapath, "test_%s_data.csv.gz" % featset))
 
-        experiment = pycater_setup(train_data, test_data, gt_label="ground_truth", ignore_feat=["pid", "fold"], use_gpu=NGPUS>0, n_jobs=NCPUS)
+        experiment = pycater_setup(train_data, test_data, gt_label="ground_truth",
+                                   ignore_feat=["pid", "fold", "time_sin", "time_cos"],
+                                   use_gpu=NGPUS>0, n_jobs=NCPUS)
 
         experiment_filename = "sleep_ml_%s_%s_%s" % (m, win, featset)
         print("Creating a %s model." % m)
