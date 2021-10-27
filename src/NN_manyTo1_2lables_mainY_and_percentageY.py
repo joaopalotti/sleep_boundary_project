@@ -23,6 +23,7 @@ from data_commons import load_data
 
 import os, sys
 import ast
+import pandas as pd
 from argparse import Namespace
 import torch
 import torch.nn as nn
@@ -40,7 +41,10 @@ from ray import tune
 from collections import OrderedDict
 from datetime import datetime
 
+os.environ["SLURM_JOB_NAME"] = "bash"
 # +
+
+
 def get_env_var(varname, default):
     return int(os.environ.get(varname)) if os.environ.get(varname) is not None else default
 
@@ -272,6 +276,10 @@ class MyNet(pl.LightningModule):
 def do_parameter_tunning(mynet, datafolder, featset, config, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
                          min_epochs=1, max_epochs=2):
 
+    output_file = "best_parameters_exp%s_trials%d.csv" % (exp_name, ntrials)
+    if os.path.exists(output_file):
+        return pd.read_csv(output_file)
+
     return run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus,
                                 ngpus=ngpus, min_epochs=min_epochs, max_epochs=max_epochs)
 
@@ -279,19 +287,19 @@ def do_parameter_tunning(mynet, datafolder, featset, config, ncpus=48, ngpus=3, 
 
 if __name__ == "__main__":
 
-    NCPUS = 12
+    NCPUS = get_env_var('SLURM_CPUS_PER_TASK', 12)
     NGPUS = 1
-    NTRIALS = 1
+    NTRIALS = 50
     MIN_EPOCHS = 3
-    MAX_EPOCHS = 50
+    MAX_EPOCHS = 30
     SLURM_JOB_ID = get_env_var('SLURM_JOB_ID', 0)
     SLURM_ARRAY_TASK_ID = get_env_var('SLURM_ARRAY_TASK_ID', 0)
     SLURM_ARRAY_TASK_COUNT = get_env_var('SLURM_ARRAY_TASK_COUNT', 1)
 
     configs = {}
-    configs["twohead"] = {
+    configs["twoheads"] = {
         # High level network configs
-        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
+        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([64, 128, 256, 512, 1024, 2048]),
         # Lower level details
         "bidirectional": tune.choice([True, False]), "lstm_layers": tune.choice([1, 2]),
         "hidden_dim": tune.choice([128, 64, 32, 16, 8]), "lstm_output_dim": tune.randint(8, 256),
@@ -303,11 +311,11 @@ if __name__ == "__main__":
         "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss], "main_weight": tune.uniform(0, 1),
         #
         "cnn_layers":  tune.randint(1, 4), "cnn_kernel_size": tune.randint(2, 11)
-     }
+     } # Loss function should be MCC -> double check it.
 
     configs["onehead"] = {
         # High level network configs
-        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
+        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([64, 128, 256, 512, 1024, 2048]),
         # Lower level details
         "bidirectional": tune.choice([True, False]), "lstm_layers": tune.choice([1, 2]),
         "hidden_dim": tune.choice([128, 64, 32, 16, 8]), "lstm_output_dim": tune.randint(8, 256),
@@ -327,14 +335,16 @@ if __name__ == "__main__":
             for featset in ["raw", "tsfresh"]:
                 combinations.append((nheads, win, featset))
 
+    print("Total combinations:", len(combinations))
+    print("All combinations:", combinations)
     selected_combinations = chunks(combinations, SLURM_ARRAY_TASK_COUNT)[SLURM_ARRAY_TASK_ID]
+    print("Processing: ", selected_combinations)
 
     for comb in selected_combinations:
         nheads, win, featset = comb
         config = configs[nheads]
 
         datafolder = "../data/processed/train_test_splits/%s/" % win
-
         exp_name = "exp_%s_%s_%s_n%d" % (nheads, featset, win, NTRIALS)
 
         if data_exists(datafolder, featset):
@@ -366,12 +376,12 @@ if __name__ == "__main__":
         else:
             best_parameters["labels"] = ["main_y", "percentage_y"]
             best_parameters["classification_tasks"] = ['main_y']
-            best_parameters["regression_tasks"] = ["percentage_y"],
+            best_parameters["regression_tasks"] = ["percentage_y"]
             best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.L1Loss]
             # best_parameters["main_weight"] = 1.0
 
         print("Final evaluation:")
-        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=1, gpus=0, patience=10)
+        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=15, gpus=0, patience=10)
         print(results_MyNet_MP)
         results_MyNet_MP["heads"] = nheads
         results_MyNet_MP["win"] = win

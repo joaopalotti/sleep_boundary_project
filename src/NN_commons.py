@@ -223,11 +223,11 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
                             dropout_lstm=float(dropout_lstm),
                             dropout_lin=float(dropout_lin),
                             #
-                            labels=labels,
-                            loss_fnct=loss_fnct,
-                            regression_tasks=regression_tasks,
-                            classification_tasks=classification_tasks,
-                            main_weight=main_weight,
+                            labels=list(labels),
+                            loss_fnct=list(loss_fnct),
+                            regression_tasks=list(regression_tasks),
+                            classification_tasks=list(classification_tasks),
+                            main_weight=float(main_weight),
                             )
 
         model = MyNet(hparams)
@@ -329,8 +329,7 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
 
 
 def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, ncpus, ngpus,
-                         min_epochs=1,
-                         max_epochs=20):
+                         min_epochs=1, max_epochs=20):
     trainable = tune.with_parameters(hyper_tuner,
                                      featset=featset,
                                      MyNet=MyNet,
@@ -341,8 +340,8 @@ def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, n
 
     analysis = tune.run(trainable,
                         resources_per_trial={"cpu": ncpus, "gpu": ngpus},
-                        metric="loss",
-                        mode="min",
+                        # metric="loss", mode="min",
+                        metric="mcc_main_y", mode="max",
                         config=config,
                         num_samples=ntrials,
                         name=expname)
@@ -352,5 +351,6 @@ def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, n
     analysis.best_result_df.to_csv("best_parameters_exp%s_trials%d.csv" % (expname, ntrials))
     analysis.results_df.to_csv("all_results_exp%s_trials%d.csv" % (expname, ntrials))
     print("Best 5 results")
-    print(analysis.results_df.sort_values(by="loss", ascending=False).head(5))
+    print(analysis.results_df.sort_values(by="mcc_main_y", ascending=False).head(5))
     return analysis.best_result_df
+

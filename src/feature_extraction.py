@@ -27,6 +27,7 @@ import re
 from pandas.api.types import is_datetime64_ns_dtype
 
 from sklearn.model_selection import KFold
+import sys
 
 
 # +
@@ -222,7 +223,7 @@ ext_settings = {
                  "number_cwt_peaks": [{"n": n} for n in [1, 5]],
                  "sum_values": None,
                  "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
-                 "kurtosis": None, "skewness": None, "abs_energy": None, "absolute_maximum": None,
+                 "kurtosis": None, "skewness": None, "abs_energy": None, 
                  "absolute_sum_of_changes": None, "mean": None, "median": None, "standard_deviation": None,
                  "mean_abs_change": None, "mean_change": None, "root_mean_square": None,
                  "percentage_of_reoccurring_datapoints_to_all_datapoints": None,
@@ -243,7 +244,7 @@ ext_settings = {
                 "number_cwt_peaks": [{"n": n} for n in [1, 5]],
                 "sum_values": None,
                 "agg_autocorrelation": [{"f_agg": s, "maxlag": 40} for s in ["mean", "median", "var"]],
-                "kurtosis": None, "skewness": None, "abs_energy": None, "absolute_maximum": None,
+                "kurtosis": None, "skewness": None, "abs_energy": None, 
                 "absolute_sum_of_changes": None, "mean": None, "median": None, "standard_deviation": None,
                 "mean_abs_change": None, "mean_change": None, "root_mean_square": None,
                 "percentage_of_reoccurring_datapoints_to_all_datapoints": None,
@@ -324,86 +325,96 @@ def convert_str_time(t):
     return "%dh%01dt" % (h, m)
 
 
+
 # + endofcell="--"
+comb = []
 for winsize_in_minutes in [10, 20, 40]:
     for centered in [True, False]:
+        comb.append([winsize_in_minutes, centered])
 
-        centered_str = "centered" if centered else "notcentered"
-        winsize_str = convert_str_time(winsize_in_minutes)
-        delta_str = convert_str_time(-winsize_in_minutes // 2) if centered else "0h00t"
+idx = int(sys.argv[1])
 
-        train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
-        feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
+winsize_in_minutes, centered = comb[idx]
 
-        if not os.path.exists(feature_extration_datapath):
-            os.mkdir(feature_extration_datapath)
 
-        if not data_exists(feature_extration_datapath):
-            df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
-            # raw data
-            # df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/part_of_data/*.csv.gz")
+print("Processing win %d, centered: %s" % (winsize_in_minutes, centered))
 
-            df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
-            win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity",
-                                                             "mean_hr"],
-                                                winsize=winsize_str,
-                                                delta=delta_str,
-                                                label_col="ground_truth_5min", pid_col="mesaid",
-                                                time_col="hyp_time_col")
+centered_str = "centered" if centered else "notcentered"
+winsize_str = convert_str_time(winsize_in_minutes)
+delta_str = convert_str_time(-winsize_in_minutes // 2) if centered else "0h00t"
 
-            transformed_df, df_labels, df_label_times, df_pids = win_result
-            save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
+train_test_output_path = "../data/processed/train_test_splits/%smin_%s" % (winsize_in_minutes, centered_str)
+feature_extration_datapath = "../data/feature_extraction_%dm_%s/" % (winsize_in_minutes, centered_str)
 
-        else:
-            print("Dont need to generate timeseries dfs. Data was saved. Loading it.... ")
-            transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
+if not os.path.exists(feature_extration_datapath):
+    os.mkdir(feature_extration_datapath)
 
-        # Extract raw features
-        raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
-        feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
+if not data_exists(feature_extration_datapath):
+    df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/*.csv.gz")
+    # raw data
+    # df = read_all_files("../data/Processed_Mesa_gt_WithandWithout_tolerance/part_of_data/*.csv.gz")
 
-        print("Checking for %s" % feature_extracted)
+    df["hyp_time_col"] = pd.to_datetime(df["hyp_time_col"])
+    win_result = generate_timeseries_df(df, signals=["ground_truth_5min", "mesaid", "hyp_time_col", "activity",
+						     "mean_hr"],
+					winsize=winsize_str,
+					delta=delta_str,
+					label_col="ground_truth_5min", pid_col="mesaid",
+					time_col="hyp_time_col")
 
-        if not os.path.exists(feature_extracted):
-            print("Extracting features...")
-            # extracted_features = tsfresh.extract_relevant_features(
-            #     transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
-            #     df_labels["ground_truth"],
-            #     column_id="seq_id", column_sort="hyp_time_col",
-            #     disable_progressbar=True,
-            #     default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
-            extracted_features = tsfresh.extract_features(
-                transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
-                column_id="seq_id", column_sort="hyp_time_col",
-                disable_progressbar=True,
-                default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
-            extracted_features = extracted_features.sort_index(axis=1)
-            extracted_features.to_csv(feature_extracted, index=False)
-        else:
-            print("Reading extracted features from file '%s'..." % feature_extracted)
-            extracted_features = pd.read_csv(feature_extracted)
+    transformed_df, df_labels, df_label_times, df_pids = win_result
+    save_data(feature_extration_datapath, transformed_df, df_labels, df_label_times, df_pids)
 
-        # stopping here
-        df_pid_fold = map_id_fold(df_pids, 11)
-        df_pid_fold = df_pids.merge(df_pid_fold)
+else:
+    print("Dont need to generate timeseries dfs. Data was saved. Loading it.... ")
+    transformed_df, df_labels, df_label_times, df_pids = load_data(feature_extration_datapath)
 
-        df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
+# Extract raw features
+raw_features = get_raw_features(transformed_df, ["activity", "mean_hr"], "seq_id")
+feature_extracted = os.path.join(feature_extration_datapath, "extracted_features.csv.gz")
 
-        tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
-                                  df_label_times.reset_index(drop=True),
-                                  df_labels.reset_index(drop=True),
-                                  df_time_sin.reset_index(drop=True),
-                                  df_time_cos.reset_index(drop=True),
-                                  extracted_features.reset_index(drop=True),
-                                  ], axis=1)
+print("Checking for %s" % feature_extracted)
 
-        raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
-                              df_label_times.reset_index(drop=True),
-                              df_labels.reset_index(drop=True),
-                              raw_features.reset_index(drop=True)], axis=1)
+if not os.path.exists(feature_extracted):
+    print("Extracting features...")
+    # extracted_features = tsfresh.extract_relevant_features(
+    #     transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
+    #     df_labels["ground_truth"],
+    #     column_id="seq_id", column_sort="hyp_time_col",
+    #     disable_progressbar=True,
+    #     default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+    extracted_features = tsfresh.extract_features(
+	transformed_df[["activity", "mean_hr", "hyp_time_col", "seq_id"]],
+	column_id="seq_id", column_sort="hyp_time_col",
+	disable_progressbar=True,
+	default_fc_parameters={}, kind_to_fc_parameters=ext_settings)
+    extracted_features = extracted_features.sort_index(axis=1)
+    extracted_features.to_csv(feature_extracted, index=False)
+else:
+    print("Reading extracted features from file '%s'..." % feature_extracted)
+    extracted_features = pd.read_csv(feature_extracted)
 
-        save_train_test_splits(train_test_output_path, tsfresh_data, "tsfresh")
-        save_train_test_splits(train_test_output_path, raw_data, "raw")
+# stopping here
+df_pid_fold = map_id_fold(df_pids, 11)
+df_pid_fold = df_pids.merge(df_pid_fold)
+
+df_time_sin, df_time_cos = convert_time_sin_cos(df_label_times, "gt_time")
+
+tsfresh_data = pd.concat([df_pid_fold.reset_index(drop=True),
+			  df_label_times.reset_index(drop=True),
+			  df_labels.reset_index(drop=True),
+			  df_time_sin.reset_index(drop=True),
+			  df_time_cos.reset_index(drop=True),
+			  extracted_features.reset_index(drop=True),
+			  ], axis=1)
+
+raw_data = pd.concat([df_pid_fold.reset_index(drop=True),
+		      df_label_times.reset_index(drop=True),
+		      df_labels.reset_index(drop=True),
+		      raw_features.reset_index(drop=True)], axis=1)
+
+save_train_test_splits(train_test_output_path, tsfresh_data, "tsfresh")
+save_train_test_splits(train_test_output_path, raw_data, "raw")
 
 # -
 # --
