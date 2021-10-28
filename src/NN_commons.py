@@ -44,15 +44,17 @@ class myXYDataset(Dataset):
         return x, y
 
 
-def data_exists(datafolder, suffix):
-    if not os.path.exists(datafolder):
-        return False
+class finalTestDataset(Dataset):
+    def __init__(self, X):
+        self.X = X
 
-    for f in ["X_train", "X_val", "X_test", "y_train", "y_val", "y_test"]:
-        if not os.path.exists("%s/%s_%s.csv.gz" % (datafolder, f, suffix)):
-            return False
+    def __len__(self):
+        return len(self.X)
 
-    return True
+    def __getitem__(self, idx):
+        x = self.X.iloc[idx].values.astype(np.double)
+        return x
+
 
 
 def save_data(output_folder, X, Y, test_pids, featset):
@@ -119,7 +121,8 @@ class LSTMLayer(pl.LightningModule):
         if break_point is None:
             break_point = input_size
 
-        self.lstm = nn.LSTM(break_point, self.hidden_dim, num_layers=num_layers, dropout=dropout_lstm,
+        self.lstm = nn.LSTM(break_point, self.hidden_dim,
+                            num_layers=num_layers, dropout=dropout_lstm,
                             batch_first=True, bidirectional=bidirectional)
         self.linlayers = nn.ModuleList()
         self.drop = nn.Dropout(dropout_lin)
@@ -143,12 +146,13 @@ class LSTMLayer(pl.LightningModule):
         self.last_lin = nn.Sequential(nn.Linear(last_d, output_dim), nn.ReLU(inplace=True))
         self.break_point = break_point
 
-    def forward(self, x, hs):
+    def forward(self, x, hs=None):
+        batch_size = x.size(0)
 
-        x = x.view(x.shape[0], x.shape[1] // self.break_point, -1)
+        x = x.view(batch_size, x.shape[1] // self.break_point, -1)
         x, hs = self.lstm(x, hs)
 
-        x = x.reshape(x.shape[0], -1)
+        x = x.view(batch_size, -1)
 
         for lay in self.linlayers:
             x = lay(x)
@@ -159,7 +163,8 @@ class LSTMLayer(pl.LightningModule):
 
 # -
 
-def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_epochs=2, max_epochs=20):
+def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
+                 min_epochs=2, max_epochs=20, save_predictions=False):
     # High level network configs
     batch_size = config["batch_size"]
 
@@ -186,12 +191,10 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
 
     X, Y, test_pids = load_data(datafolder, featset)
 
-    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=int(batch_size), shuffle=True, drop_last=True,
-                       num_workers=8)
-    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=int(batch_size), shuffle=False, drop_last=True,
-                     num_workers=8)
-    test = DataLoader(myXYDataset(X["test"], Y["test"]), batch_size=int(batch_size), shuffle=False, drop_last=True,
-                      num_workers=8)
+    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=int(batch_size), shuffle=True, drop_last=False, num_workers=8)
+    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
+    test = DataLoader(myXYDataset(X["test"], Y["test"]), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
+
 
     results = []
     for s in range(n):
@@ -207,9 +210,7 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
 
         hparams = Namespace(batch_size=int(batch_size),
                             input_dim=X["train"].shape[1],
-                            #
                             # Optmizer configs
-                            #
                             opt_learning_rate=float(learning_rate),
                             opt_step_size=int(opt_step_size),
                             opt_gamma=0.5,
@@ -238,6 +239,18 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5, min_
         trainer.fit(model, train, val)
         res = trainer.test(test_dataloaders=test)
         results.append(res[0])
+
+        if save_predictions is not None:
+            finaltest = DataLoader(finalTestDataset(X["test"]), batch_size=1, shuffle=False, drop_last=False, num_workers=8)
+            predictions = trainer.predict(model, dataloaders=finaltest, return_predictions=True)
+            ks = predictions[0].keys()
+
+            r = {}
+            for k in ks:
+                r[k] = pd.concat([pd.Series(e[k].view(-1).numpy()) for e in predictions]).reset_index(drop=True)
+            predictions = pd.DataFrame(r)
+            predictions = pd.concat([test_pids, predictions], axis=1)
+            predictions.to_csv(save_predictions, index=False)
 
     return pd.DataFrame(results)
 
@@ -269,9 +282,9 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
 
     X, Y, test_pids = load_data(datafolder, featset)
 
-    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=True,
+    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=False,
                        num_workers=8)
-    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=batch_size, shuffle=False, drop_last=True,
+    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=batch_size, shuffle=False, drop_last=False,
                      num_workers=8)
 
     seed.seed_everything(42)
