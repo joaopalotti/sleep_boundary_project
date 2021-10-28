@@ -96,8 +96,12 @@ if __name__ == "__main__":
         train_data = pd.read_csv(os.path.join(datapath, "train_%s_data.csv.gz" % featset))
         test_data = pd.read_csv(os.path.join(datapath, "test_%s_data.csv.gz" % featset))
 
+        feats_to_ignore = ["pid", "fold"]
+        if "time_sin" in train_data:
+            feats_to_ignore += ["time_sin", "time_cos"]
+
         experiment = pycater_setup(train_data, test_data, gt_label="ground_truth",
-                                   ignore_feat=["pid", "fold", "time_sin", "time_cos"],
+                                   ignore_feat=feats_to_ignore,
                                    use_gpu=NGPUS>0, n_jobs=NCPUS)
 
         experiment_filename = "sleep_ml_%s_%s_%s" % (m, win, featset)

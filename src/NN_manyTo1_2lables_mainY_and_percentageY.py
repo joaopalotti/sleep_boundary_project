@@ -42,6 +42,8 @@ from collections import OrderedDict
 from datetime import datetime
 
 os.environ["SLURM_JOB_NAME"] = "bash"
+
+
 # +
 
 
@@ -50,7 +52,8 @@ def get_env_var(varname, default):
 
 def chunks(l, n):
     n = len(l) // n
-    return [l[i:i+n] for i in range(0, len(l), max(1, n))]
+    return [l[i:i + n] for i in range(0, len(l), max(1, n))]
+
 
 class MyNet(pl.LightningModule):
 
@@ -83,19 +86,21 @@ class MyNet(pl.LightningModule):
 
         # Other configs
         self.batch_size = hparams.batch_size
+        self.channels = 2
+        # self.autoencoder = hparams.autoencoder
 
         if self.cnn_layers > 0:
             seqs = []
             for i in range(self.cnn_layers):
-                kernel_size = self.cnn_kernel_size//(i+1)
+                kernel_size = self.cnn_kernel_size // (i + 1)
                 kernel_size = 1 if kernel_size == 0 else kernel_size
-
-                seq = nn.Sequential(nn.Conv1d(1, 1, kernel_size=kernel_size, stride=1, padding="same"),
-                                    nn.BatchNorm1d(1), nn.ReLU(inplace=True))
+                seq = nn.Sequential(nn.Conv1d(self.channels, self.channels,
+                                              kernel_size=kernel_size, stride=1, padding="same"),
+                                    nn.BatchNorm1d(self.channels),
+                                    nn.ReLU(inplace=True),
+                                    nn.Dropout(self.dropout_lin))
                 seqs.append(seq)
-
             self.cnn = nn.Sequential(*seqs)
-
 
         self.net = LSTMLayer(input_size=self.input_dim, break_point=self.input_dim,
                              dropout_lstm=self.dropout_lstm,
@@ -117,19 +122,19 @@ class MyNet(pl.LightningModule):
                 ('lin2_%s' % label, nn.Linear(4, 1))
             ]))
 
-        self.hs = self.init_hidden()
+        self.hs = None  # self.init_hidden()
 
     # Options:
     # (1) input => feature extraction using TSFresh -> LSTM -> lin -> results
     # (2) input => no feature extraction -> LSTM -> lin -> results
     # (3) input => feature extraction with CNN (raw) -> LSTM = > LinearLayer = > Results
 
-    def init_hidden(self):
+    def init_hidden(self, batch_size):
 
         D = 2 if self.bidirectional is True else 1
 
-        h0 = torch.zeros(self.lstm_layers * D, self.batch_size, self.hidden_dim).double()
-        c0 = torch.zeros(self.lstm_layers * D, self.batch_size, self.hidden_dim).double()
+        h0 = torch.zeros(self.lstm_layers * D, batch_size, self.hidden_dim).double()
+        c0 = torch.zeros(self.lstm_layers * D, batch_size, self.hidden_dim).double()
 
         nn.init.xavier_normal_(h0)
         nn.init.xavier_normal_(c0)
@@ -138,13 +143,18 @@ class MyNet(pl.LightningModule):
         return hidden
 
     def forward(self, x):
-        if self.cnn_layers > 0:
-            x = x.unsqueeze(1)  # Reshape from (B,L) to (B, C=1, L)
-            x = self.cnn(x)
-            x = x.squeeze(1)  # Reshape it back to (B,L)
 
-        x, self.hs = self.net(x, self.hs)
-        self.hs = tuple([h.data for h in self.hs])
+        if self.cnn_layers > 0:
+            if self.channels == 2:
+                x = x.view(x.shape[0], 2, x.shape[1] // 2)
+                x = self.cnn(x)
+            else:
+                x = x.unsqueeze(1)  # Reshape from (B,L) to (B, C=1, L)
+                x = self.cnn(x)
+                x = x.squeeze(1)  # Reshape it back to (B,L)
+            x = x.view(x.shape[0], -1)
+
+        x, hidden = self.net(x)
         x = self.drop(x)
         out = {}
         for label in self.labels:
@@ -166,7 +176,7 @@ class MyNet(pl.LightningModule):
 
         y_label = {}
         for i, l in enumerate(self.labels):
-            y_label[l] = y[:, i:i+1]
+            y_label[l] = y[:, i:i + 1]
 
         losses = []
         for i, l in enumerate(self.labels):
@@ -215,8 +225,8 @@ class MyNet(pl.LightningModule):
         y = {}
         pred = {}
         for i, l in enumerate(self.labels):
-            y[l] = torch.stack([row["y"][0:, i:i+1] for row in outputs]).view(-1).cpu()
-            pred[l] = torch.stack([row["preds"][l] for row in outputs]).view(-1)
+            y[l] = torch.cat([row["y"][0:, i:i+1] for row in outputs]).view(-1).cpu()
+            pred[l] = torch.cat([row["preds"][l] for row in outputs]).view(-1)
             pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
 
         for label in self.classification_tasks:
@@ -247,8 +257,8 @@ class MyNet(pl.LightningModule):
         y = {}
         pred = {}
         for i, l in enumerate(self.labels):
-            y[l] = torch.stack([row["y"][0:, i:i+1] for row in outputs]).view(-1).cpu()
-            pred[l] = torch.stack([row["preds"][l] for row in outputs]).view(-1)
+            y[l] = torch.cat([row["y"][0:, i:i + 1] for row in outputs]).view(-1).cpu()
+            pred[l] = torch.cat([row["preds"][l] for row in outputs]).view(-1)
             pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
 
         for label in self.classification_tasks:
@@ -260,8 +270,8 @@ class MyNet(pl.LightningModule):
             self.log("mcc_%s" % label, mcc)
 
             print("(Test_%s) Epoch: %d, Acc: %.3f, P: %.3f, R: %.3f, F1: %.3f, MCC: %.3f" % (label,
-                                                                                            self.current_epoch,
-                                                                                            acc, prec, rec, f1, mcc))
+                                                                                             self.current_epoch,
+                                                                                             acc, prec, rec, f1, mcc))
 
         for label in self.regression_tasks:
             MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
@@ -275,14 +285,11 @@ class MyNet(pl.LightningModule):
 
 def do_parameter_tunning(mynet, datafolder, featset, config, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
                          min_epochs=1, max_epochs=2):
-
     output_file = "best_parameters_exp%s_trials%d.csv" % (exp_name, ntrials)
     if os.path.exists(output_file):
         return pd.read_csv(output_file)
-
     return run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus,
                                 ngpus=ngpus, min_epochs=min_epochs, max_epochs=max_epochs)
-
 
 
 if __name__ == "__main__":
@@ -299,7 +306,8 @@ if __name__ == "__main__":
     configs = {}
     configs["twoheads"] = {
         # High level network configs
-        "learning_rate": tune.loguniform(1e-6, 1e-1), "batch_size": tune.choice([64, 128, 256, 512, 1024, 2048]),
+        "learning_rate": tune.loguniform(1e-6, 1e-1),
+        "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
         # Lower level details
         "bidirectional": tune.choice([True, False]), "lstm_layers": tune.choice([1, 2]),
         "hidden_dim": tune.choice([128, 64, 32, 16, 8]), "lstm_output_dim": tune.randint(8, 256),
@@ -310,8 +318,8 @@ if __name__ == "__main__":
         "labels": ["main_y", "percentage_y"], "classification_tasks": ["main_y"], "regression_tasks": ["percentage_y"],
         "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss], "main_weight": tune.uniform(0, 1),
         #
-        "cnn_layers":  tune.randint(1, 4), "cnn_kernel_size": tune.randint(2, 11)
-     } # Loss function should be MCC -> double check it.
+        "cnn_layers": tune.randint(0, 4), "cnn_kernel_size": tune.randint(2, 11)
+    }  # Loss function should be MCC -> double check it.
 
     configs["onehead"] = {
         # High level network configs
@@ -325,14 +333,14 @@ if __name__ == "__main__":
         "classification_tasks": ["main_y"], "regression_tasks": [],
         "loss_fnct": [nn.BCEWithLogitsLoss], "main_weight": 1.,
         #
-        "cnn_layers": tune.randint(1, 4), "cnn_kernel_size": tune.randint(2, 11),
+        "cnn_layers": tune.randint(0, 4), "cnn_kernel_size": tune.randint(2, 11),
     }
 
     combinations = []
     for nheads in ["onehead", "twoheads"]:
         for win in ["10min_centered", "20min_centered", "40min_centered", "10min_notcentered",
                     "20min_notcentered", "40min_notcentered"]:
-            for featset in ["raw", "tsfresh"]:
+            for featset in ["tsfresh", "raw"]:
                 combinations.append((nheads, win, featset))
 
     print("Total combinations:", len(combinations))
@@ -347,18 +355,10 @@ if __name__ == "__main__":
         datafolder = "../data/processed/train_test_splits/%s/" % win
         exp_name = "exp_%s_%s_%s_n%d" % (nheads, featset, win, NTRIALS)
 
-        if data_exists(datafolder, featset):
-            print("Data already exist. Loading files from %s" % datafolder)
-            X, Y, test_pids = load_data(datafolder, featset)
-        else:
-            X, Y, test_pids = create_xy(os.path.join(datafolder, "train_%s_data.csv.gz" % (featset)),
-                                        os.path.join(datafolder, "test_%s_data.csv.gz" % (featset)), use_gpu=True)
-            save_data(datafolder, X, Y, test_pids, featset)
-
         # This needs to be the fullpath
         best_df = do_parameter_tunning(MyNet,
-                        # "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
-                        "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
+                        "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
+                        # "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
                         featset, config=config, ncpus=NCPUS, ngpus=NGPUS, ntrials=NTRIALS, exp_name=exp_name,
                         min_epochs=MIN_EPOCHS, max_epochs=MAX_EPOCHS)
 
@@ -378,10 +378,10 @@ if __name__ == "__main__":
             best_parameters["classification_tasks"] = ['main_y']
             best_parameters["regression_tasks"] = ["percentage_y"]
             best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.L1Loss]
-            # best_parameters["main_weight"] = 1.0
 
         print("Final evaluation:")
-        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=15, gpus=0, patience=10)
+        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=10, gpus=0,
+                                        patience=10, save_predictions=exp_name + "_pred.csv.gz")
         print(results_MyNet_MP)
         results_MyNet_MP["heads"] = nheads
         results_MyNet_MP["win"] = win
@@ -389,6 +389,26 @@ if __name__ == "__main__":
         results_MyNet_MP["exp_name"] = exp_name
         results_MyNet_MP.to_csv("final_%s.csv" % exp_name)
 
+        # best_parameters = {"labels": ["main_y", "percentage_y"],
+        #                    "classification_tasks": ['main_y'],
+        #                    "regression_tasks": ["percentage_y"],
+        #                    "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss],
+        #                    "main_weight": 1.0,
+        #                    "learning_rate": 0.001,
+        #                    "batch_size": 4048,
+        #                    "bidirectional": True,
+        #                    "lstm_layers": 1,
+        #                    "hidden_dim": 16,
+        #                    "lstm_output_dim": 8,
+        #                    "dropout_lstm": 0.1,
+        #                    "dropout_lin": 0.1,
+        #                    "opt_step_size": 2,
+        #                    "cnn_layers": 1,
+        #                    "cnn_kernel_size": 3,
+        #                    }
+        #
+        # results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset,
+        #                                 n=1, gpus=0, patience=1, save_predictions=exp_name + "_pred.csv.gz")
 
 # p = "batch_size=256,bidirectional=False,cnn_kernel_size=3,dropout_lin=0.50716,dropout_lstm=0.75856,hidden_dim=8,learning_rate=0.00067346,lstm_layers=1,lstm_output_dim=125,opt_step_size=13"
 # best_parameters = dict([e.split("=") for e in p.split(",")])
