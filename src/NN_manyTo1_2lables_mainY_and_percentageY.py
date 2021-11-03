@@ -164,7 +164,7 @@ class MyNet(pl.LightningModule):
 
     def configure_optimizers(self):
         print("Current number of parameters:", len(list(self.parameters())))
-        optimizer = optim.Adam(self.parameters(), lr=self.opt_learning_rate)
+        optimizer = optim.AdamW(self.parameters(), lr=self.opt_learning_rate)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
                                                          patience=self.opt_step_size,
                                                          factor=self.opt_gamma,  # new_lr = lr * factor (default = 0.1)
@@ -186,7 +186,9 @@ class MyNet(pl.LightningModule):
 
         final_loss = losses[0] * self.main_weight
         if len(self.labels) > 1:
-            final_loss += (losses[1] * (1.0 - self.main_weight))
+            ave_weight = (1.0 - self.main_weight) / (len(self.labels) - 1)
+            for i in range(1, len(self.labels)):
+                final_loss += (losses[i] * ave_weight)
 
         return final_loss
 
@@ -227,7 +229,9 @@ class MyNet(pl.LightningModule):
         for i, l in enumerate(self.labels):
             y[l] = torch.cat([row["y"][0:, i:i+1] for row in outputs]).view(-1).cpu()
             pred[l] = torch.cat([row["preds"][l] for row in outputs]).view(-1)
-            pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
+
+            if l in self.classification_tasks:
+                pred[l] = torch.round(torch.sigmoid(pred[l])).cpu()
 
         for label in self.classification_tasks:
             acc, prec, rec, f1, mcc = calculate_classification_metrics(y[label], pred[label])
@@ -242,7 +246,6 @@ class MyNet(pl.LightningModule):
                                                                                             acc, prec, rec, f1, mcc))
 
         for label in self.regression_tasks:
-            print("label:", label, "type", type(label), "reg_task:", self.regression_tasks, "type:", type(self.regression_tasks), "type(y):", type(y), "type(pred):", type(pred))
             MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
 
             self.log("MAE_%s" % label, MAE)
@@ -318,7 +321,7 @@ if __name__ == "__main__":
         "opt_step_size": tune.randint(1, 20),
         # Version with two heads:
         "labels": ["main_y", "percentage_y"], "classification_tasks": ["main_y"], "regression_tasks": ["percentage_y"],
-        "loss_fnct": [nn.BCEWithLogitsLoss, nn.L1Loss], "main_weight": tune.uniform(0, 1),
+        "loss_fnct": [nn.BCEWithLogitsLoss, nn.MSELoss], "main_weight": tune.uniform(0, 1),
         #
         "cnn_layers": tune.randint(0, 4), "cnn_kernel_size": tune.randint(2, 11)
     }  # Loss function should be MCC -> double check it.
@@ -338,8 +341,27 @@ if __name__ == "__main__":
         "cnn_layers": tune.randint(0, 4), "cnn_kernel_size": tune.randint(2, 11),
     }
 
+    configs["manyheads"] = {
+        # High level network configs
+        "learning_rate": tune.loguniform(1e-6, 1e-1),
+        "batch_size": tune.choice([16, 32, 64, 128, 256, 512, 1024, 2048]),
+        # Lower level details
+        "bidirectional": tune.choice([True, False]), "lstm_layers": tune.choice([1, 2]),
+        "hidden_dim": tune.choice([128, 64, 32, 16, 8]), "lstm_output_dim": tune.randint(8, 256),
+        "dropout_lstm": tune.uniform(0, 1), "dropout_lin": tune.uniform(0, 1),
+        # Optmizer
+        "opt_step_size": tune.randint(1, 20),
+        # Version with two heads:
+        "labels": ["main_y", "all_awake", "all_sleep", "is_transition", "percentage_y"],
+        "classification_tasks": ["main_y", "all_awake", "all_sleep", "is_transition"],
+        "regression_tasks": ["percentage_y"],
+        "loss_fnct": [nn.BCEWithLogitsLoss, nn.BCEWithLogitsLoss, nn.BCEWithLogitsLoss, nn.BCEWithLogitsLoss, nn.MSELoss],
+        "main_weight": tune.uniform(0, 1),
+        "cnn_layers": tune.randint(0, 4), "cnn_kernel_size": tune.randint(2, 11)
+    }  # Loss function should be MCC -> double check it.
+
     combinations = []
-    for nheads in ["onehead", "twoheads"]:
+    for nheads in ["onehead", "twoheads", "manyheads"]:
         for win in ["10min_centered", "20min_centered", "40min_centered", "10min_notcentered",
                     "20min_notcentered", "40min_notcentered"]:
             for featset in ["tsfresh", "raw"]:
@@ -382,11 +404,16 @@ if __name__ == "__main__":
             best_parameters["regression_tasks"] = []
             best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss]
             best_parameters["main_weight"] = 1.0
-        else:
+        elif nheads == "twoheads":
             best_parameters["labels"] = ["main_y", "percentage_y"]
             best_parameters["classification_tasks"] = ['main_y']
             best_parameters["regression_tasks"] = ["percentage_y"]
-            best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.L1Loss]
+            best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.MSELoss]
+        else:
+            best_parameters["labels"] = ["main_y", "all_awake", "all_sleep", "is_transition", "percentage_y"]
+            best_parameters["classification_tasks"] = ["main_y", "all_awake", "all_sleep", "is_transition"]
+            best_parameters["regression_tasks"] = ["percentage_y"]
+            best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.BCEWithLogitsLoss, nn.BCEWithLogitsLoss, nn.BCEWithLogitsLoss, nn.MSELoss]
 
         print("Final evaluation:")
         results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=10, gpus=NGPUS,

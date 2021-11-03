@@ -14,6 +14,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.utilities import seed
+from pytorch_lightning.loggers import WandbLogger
 
 
 def calculate_classification_metrics(labels, predictions):
@@ -31,8 +32,20 @@ def calculate_regression_metrics(labels, predictions):
 
 
 class myXYDataset(Dataset):
-    def __init__(self, X, Y):
-        self.Y = Y
+    def __init__(self, X, Y, y_order):
+        if "percentage_ground_truth" in Y:
+            Y["percentage_ground_truth"] /= 100.
+            Y["all_awake"] = Y["percentage_ground_truth"] <= 0.01
+            Y["all_sleep"] = Y["percentage_ground_truth"] >= 0.99
+            Y["is_transition"] = (Y["percentage_ground_truth"] < 0.99) & (Y["percentage_ground_truth"] > 0.01)
+
+        if "ground_truth" in Y:
+            Y["main_y"] = Y["ground_truth"]
+
+        if "percentage_ground_truth" in Y:
+            Y["percentage_y"] = Y["percentage_ground_truth"]
+
+        self.Y = Y[y_order]
         self.X = X
 
     def __len__(self):
@@ -91,8 +104,8 @@ def get_number_internal_layers(n, output_size):
         get_number_internal_layers(20, 3) --> [16, 8, 4]
         get_number_internal_layers(192, 16) # --> [128, 64, 32]
     """
-    i = 1;
-    d = 2;
+    i = 1
+    d = 2
     s = []
     while (n - 1) / d > 1:
         s.append(d)
@@ -165,6 +178,7 @@ class LSTMLayer(pl.LightningModule):
 
 def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
                  min_epochs=2, max_epochs=20, save_predictions=False):
+
     # High level network configs
     batch_size = config["batch_size"]
 
@@ -191,9 +205,9 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
 
     X, Y, test_pids = load_data(datafolder, featset)
 
-    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=int(batch_size), shuffle=True, drop_last=False, num_workers=8)
-    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
-    test = DataLoader(myXYDataset(X["test"], Y["test"]), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
+    train = DataLoader(myXYDataset(X["train"], Y["train"], y_order=labels), batch_size=int(batch_size), shuffle=True, drop_last=False, num_workers=8)
+    val = DataLoader(myXYDataset(X["val"], Y["val"], y_order=labels), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
+    test = DataLoader(myXYDataset(X["test"], Y["test"], y_order=labels), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
 
     results = []
     for s in range(n):
@@ -209,7 +223,7 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
 
         hparams = Namespace(batch_size=int(batch_size),
                             input_dim=X["train"].shape[1],
-                            # Optmizer configs
+                            # Optimizer configs
                             opt_learning_rate=float(learning_rate),
                             opt_step_size=int(opt_step_size),
                             opt_gamma=0.5,
@@ -233,8 +247,10 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
         model = MyNet(hparams)
         model.double()
 
+        wandb_logger = WandbLogger(name='donna' if save_predictions is None else save_predictions)
+
         trainer = Trainer(gpus=gpus, min_epochs=min_epochs, max_epochs=max_epochs, deterministic=True,
-                          callbacks=[early_stop_callback, ckp])
+                          callbacks=[early_stop_callback, ckp], logger=wandb_logger)
         trainer.fit(model, train, val)
         res = trainer.test(test_dataloaders=test)
         results.append(res[0])
@@ -281,9 +297,9 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, pati
 
     X, Y, test_pids = load_data(datafolder, featset)
 
-    train = DataLoader(myXYDataset(X["train"], Y["train"]), batch_size=batch_size, shuffle=True, drop_last=False,
+    train = DataLoader(myXYDataset(X["train"], Y["train"], y_order=labels), batch_size=batch_size, shuffle=True, drop_last=False,
                        num_workers=8)
-    val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=batch_size, shuffle=False, drop_last=False,
+    val = DataLoader(myXYDataset(X["val"], Y["val"], y_order=labels), batch_size=batch_size, shuffle=False, drop_last=False,
                      num_workers=8)
 
     seed.seed_everything(42)
