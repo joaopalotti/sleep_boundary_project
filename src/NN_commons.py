@@ -195,7 +195,6 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
     val = DataLoader(myXYDataset(X["val"], Y["val"]), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
     test = DataLoader(myXYDataset(X["test"], Y["test"]), batch_size=int(batch_size), shuffle=False, drop_last=False, num_workers=8)
 
-
     results = []
     for s in range(n):
         seed.seed_everything(s)
@@ -247,7 +246,7 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
 
             r = {}
             for k in ks:
-                r[k] = pd.concat([pd.Series(e[k].view(-1).numpy()) for e in predictions]).reset_index(drop=True)
+                r[k] = pd.concat([pd.Series(e[k].cpu().view(-1).numpy()) for e in predictions]).reset_index(drop=True)
             predictions = pd.DataFrame(r)
             predictions = pd.concat([test_pids, predictions], axis=1)
             predictions.to_csv(save_predictions, index=False)
@@ -255,7 +254,7 @@ def eval_n_times(MyNet, config, datafolder, featset, n, gpus=1, patience=5,
     return pd.DataFrame(results)
 
 
-def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_per_node=0):
+def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, patience, gpu_per_node=0):
     # High level network configs
     batch_size = config["batch_size"]
 
@@ -291,7 +290,7 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
 
     path_ckps = "./TEST_logs/lightning_logs/test/"
 
-    early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=5)
+    early_stop_callback = EarlyStopping(min_delta=0.00, verbose=False, monitor='loss', mode='min', patience=patience)
     ckp = ModelCheckpoint(filename=path_ckps + "{epoch:03d}-{loss:.3f}-{mcc:.3f}", save_top_k=1, verbose=False,
                           monitor="loss", mode="min")
 
@@ -341,9 +340,10 @@ def hyper_tuner(config, MyNet, datafolder, featset, min_epochs, max_epochs, gpu_
     trainer.fit(model, train, val)
 
 
-def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, ncpus, ngpus,
+def run_tuning_procedure(MyNet, datafolder, featset, config, expname, ntrials, ncpus, ngpus,patience,
                          min_epochs=1, max_epochs=20):
     trainable = tune.with_parameters(hyper_tuner,
+                                     patience=patience,
                                      featset=featset,
                                      MyNet=MyNet,
                                      datafolder=datafolder,

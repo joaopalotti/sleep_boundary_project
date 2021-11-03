@@ -242,6 +242,7 @@ class MyNet(pl.LightningModule):
                                                                                             acc, prec, rec, f1, mcc))
 
         for label in self.regression_tasks:
+            print("label:", label, "type", type(label), "reg_task:", self.regression_tasks, "type:", type(self.regression_tasks), "type(y):", type(y), "type(pred):", type(pred))
             MAE, MSE, r2 = calculate_regression_metrics(y[label], pred[label])
 
             self.log("MAE_%s" % label, MAE)
@@ -283,12 +284,12 @@ class MyNet(pl.LightningModule):
             print("(Test_%s) Epoch: %d, MAE: %.3f, MSE: %.3f, r2: %.3f" % (label, self.current_epoch, MAE, MSE, r2))
 
 
-def do_parameter_tunning(mynet, datafolder, featset, config, ncpus=48, ngpus=3, ntrials=100, exp_name="test",
+def do_parameter_tunning(mynet, datafolder, featset, config, ncpus=48, ngpus=3, ntrials=100, exp_name="test", patience=5,
                          min_epochs=1, max_epochs=2):
     output_file = "best_parameters_exp%s_trials%d.csv" % (exp_name, ntrials)
     if os.path.exists(output_file):
         return pd.read_csv(output_file)
-    return run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus,
+    return run_tuning_procedure(mynet, datafolder, featset, config, exp_name, ntrials=ntrials, ncpus=ncpus, patience=patience,
                                 ngpus=ngpus, min_epochs=min_epochs, max_epochs=max_epochs)
 
 
@@ -299,6 +300,7 @@ if __name__ == "__main__":
     NTRIALS = 50
     MIN_EPOCHS = 3
     MAX_EPOCHS = 30
+    PATIENCE = 5
     SLURM_JOB_ID = get_env_var('SLURM_JOB_ID', 0)
     SLURM_ARRAY_TASK_ID = get_env_var('SLURM_ARRAY_TASK_ID', 0)
     SLURM_ARRAY_TASK_COUNT = get_env_var('SLURM_ARRAY_TASK_COUNT', 1)
@@ -354,13 +356,20 @@ if __name__ == "__main__":
 
         datafolder = "../data/processed/train_test_splits/%s/" % win
         exp_name = "exp_%s_%s_%s_n%d" % (nheads, featset, win, NTRIALS)
+        print("Running experiment: %s" % exp_name)
+
+        if os.path.exists("final_%s.csv" % exp_name):
+            print("Experiment was already performed. Skipping %s" % exp_name)
+            continue
 
         # This needs to be the fullpath
         best_df = do_parameter_tunning(MyNet,
                         "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
                         # "/home/palotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win),
-                        featset, config=config, ncpus=NCPUS, ngpus=NGPUS, ntrials=NTRIALS, exp_name=exp_name,
+                        featset, config=config, ncpus=NCPUS, ngpus=NGPUS, ntrials=NTRIALS, exp_name=exp_name, patience=PATIENCE,
                         min_epochs=MIN_EPOCHS, max_epochs=MAX_EPOCHS)
+
+        print("Done with parameter search")
 
         keys = [k for k in best_df.keys() if "config." in k]
         best_parameters = {}
@@ -380,8 +389,9 @@ if __name__ == "__main__":
             best_parameters["loss_fnct"] = [nn.BCEWithLogitsLoss, nn.L1Loss]
 
         print("Final evaluation:")
-        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=10, gpus=0,
-                                        patience=10, save_predictions=exp_name + "_pred.csv.gz")
+        results_MyNet_MP = eval_n_times(MyNet, best_parameters, datafolder, featset, n=10, gpus=NGPUS,
+                                        min_epochs=MIN_EPOCHS, max_epochs=MAX_EPOCHS,
+                                        patience=PATIENCE, save_predictions=exp_name + "_pred.csv.gz")
         print(results_MyNet_MP)
         results_MyNet_MP["heads"] = nheads
         results_MyNet_MP["win"] = win

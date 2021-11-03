@@ -69,13 +69,18 @@ if __name__ == "__main__":
     SLURM_JOB_ID = get_env_var('SLURM_JOB_ID', 0)
     SLURM_ARRAY_TASK_ID = get_env_var('SLURM_ARRAY_TASK_ID', 0)
     SLURM_ARRAY_TASK_COUNT = get_env_var('SLURM_ARRAY_TASK_COUNT', 1)
-    n_iter = 20
 
     combinations = []
-    for model in ["lr", "rf", "et", "lda", "lightgbm"]:
+    for model in ["et", "lr", "rf", "lda", "lightgbm"]:
         for win in ["10min_centered", "20min_centered", "40min_centered", "10min_notcentered",
                     "20min_notcentered", "40min_notcentered"]:
             for featset in ["raw", "tsfresh"]:
+
+                experiment_filename = "sleep_ml_%s_%s_%s" % (model, win, featset)
+                if os.path.exists(experiment_filename + ".csv.gz"):
+                    print("Experiment was done already. Stopping here...")
+                    continue
+
                 combinations.append((model, win, featset))
 
     print("Total combinations:", len(combinations))
@@ -83,7 +88,7 @@ if __name__ == "__main__":
     selected_combinations = chunks(combinations, SLURM_ARRAY_TASK_COUNT)[SLURM_ARRAY_TASK_ID]
     print("Processing: ", selected_combinations)
 
-    for comb in selected_combinations:
+    for comb in selected_combinations[::-1]:
         m, win, featset = comb
 
         #exp = "%s" % sys.argv[1] #10min_centered, 10min_notcentered...
@@ -91,7 +96,13 @@ if __name__ == "__main__":
         #n_jobs = int(sys.argv[3])
 
         datapath = "/export/sc2/jpalotti/github/sleep_boundary_project/data/processed/train_test_splits/%s/" % (win)
-        print("Running with %s %s %s" % (win, featset, datapath))
+        print("Running %s with %s %s -- Datapath: %s" % (m, win, featset, datapath))
+
+        experiment_filename = "sleep_ml_%s_%s_%s" % (m, win, featset)
+
+        if os.path.exists(experiment_filename + ".csv.gz"):
+            print("Experiment was done already. Stopping here...")
+            continue
 
         train_data = pd.read_csv(os.path.join(datapath, "train_%s_data.csv.gz" % featset))
         test_data = pd.read_csv(os.path.join(datapath, "test_%s_data.csv.gz" % featset))
@@ -104,10 +115,9 @@ if __name__ == "__main__":
                                    ignore_feat=feats_to_ignore,
                                    use_gpu=NGPUS>0, n_jobs=NCPUS)
 
-        experiment_filename = "sleep_ml_%s_%s_%s" % (m, win, featset)
         print("Creating a %s model." % m)
         model = create_model(m)
-        model = tune_model(model, n_iter=n_iter, choose_better=True)
+        model = tune_model(model, n_iter=NTRIALS, choose_better=True)
 
         print("Creating final model to save results to disk............")
         model = create_model(model)

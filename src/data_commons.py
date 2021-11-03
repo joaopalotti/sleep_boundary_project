@@ -31,7 +31,7 @@ def pycater_setup(train_data, test_data,
                        normalize=True, transformation=False,
                        fold_strategy="groupkfold", fold_groups="fold",
                        ignore_features=ignore_feat,
-                       silent=False, use_gpu=use_gpu,
+                       silent=True, use_gpu=use_gpu,
                        normalize_method='robust',
                        polynomial_features=False,
                        numeric_features=numeric_features,
@@ -50,7 +50,8 @@ def create_xy(train_path="train_data.csv.gz", test_path="test_data.csv.gz", use_
     features_to_ignore = ["pid", "fold", "gt_time",
                           "percentage_ground_truth"] if "percentage_ground_truth" in train_data else ["pid", "fold",
                                                                                                       "gt_time"]
-    features_to_ignore += ["time_sin", "time_cos"]
+    if "time_sin" in train_data:
+        features_to_ignore += ["time_sin", "time_cos"]
 
     experiment = pycater_setup(train_data, test_data,
                                gt_label="ground_truth",
@@ -144,8 +145,8 @@ if __name__ == "__main__":
         datafolder = "../data/processed/train_test_splits/%s/" % win
 
         if data_exists(datafolder, featset):
-            print("Data already exist at %s. We are done!" % datafolder)
-        else:
+        #    print("Data already exist at %s. We are done!" % datafolder)
+        #else:
             print("Creating data....Win: %s, Featset: %s" % (win, featset))
             X, Y, test_pids = create_xy(os.path.join(datafolder, "train_%s_data.csv.gz" % (featset)),
                                         os.path.join(datafolder, "test_%s_data.csv.gz" % featset), use_gpu=True)
