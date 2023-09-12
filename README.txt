@@ -1,1 +1,1 @@
-This is a readme.
+In this project we utilized 5 machine learning models + a neural network with CNN and LSTM layers to autonomously detect sleep periods. The input data is from werables and we extracted 137 features out of two signals. We used different congigurations for each model and improved performance by 22%, surpassing traditional formulas in sleep science in terms of MCC. This work was on MESA, the largest publicly available dataset on sleep science, with over 1.75 million samples spanning seven days and 24 hours
